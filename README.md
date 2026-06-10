@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Reproducible](https://img.shields.io/badge/reproducible-pipeline-success.svg)](#reproducing-the-analysis)
 
-**Authors:** Nurudeen Showole, MD¹, Suhila Sawesi, PhD¹
+**Authors:** Nurudeen Showole, MD (1); Suhila Sawesi, PhD (1)
 
-¹ Affiliation (institution to be added)
+(1) Grand Valley State University
 
 A reproducible, end-to-end research analysis pipeline investigating how **socioeconomic
 status (SES)** and **health information-seeking behaviour (HISB)** predict
