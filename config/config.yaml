@@ -22,3 +22,25 @@ modelling:
 mediation:
   # X = ses_score (SES composite), M = hisb_score, Y = self_medication
   n_boot: 1000
+
+subgroup:
+  # Binary variables to stratify the SES/HISB associations over.
+  variables:
+    - chronic_condition
+    - internet_access
+
+mi:
+  # Multiple imputation demo. Missingness is injected (MCAR) into these predictors
+  # so the imputation is meaningful on the synthetic data; on real data with genuine
+  # missingness set demo_missing_rate: 0.0 to impute the observed gaps only.
+  demo_missing: true
+  demo_missing_rate: 0.15
+  demo_missing_cols:
+    - hisb_score
+    - self_treat_score
+  n_imputations: 20
+  n_burnin: 10
+
+calibration:
+  n_splits: 5
+  n_calibration_bins: 10

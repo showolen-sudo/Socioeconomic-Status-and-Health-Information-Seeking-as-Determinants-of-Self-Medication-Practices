@@ -57,8 +57,11 @@ self-medication-ses-study/
 |   +-- data_preprocessing.py
 |   +-- descriptive_analysis.py
 |   +-- statistical_models.py  # Binary logistic regression
-|   +-- ordinal_models.py      # Proportional-odds model + Brant test
+|   +-- ordinal_models.py      # Proportional-odds + Brant test + partial PO
 |   +-- mediation_analysis.py  # SES -> HISB -> self-medication (bootstrap)
+|   +-- subgroup_analysis.py   # Stratified ORs + effect-modification tests
+|   +-- multiple_imputation.py # MICE vs complete-case (Rubin pooling)
+|   +-- calibration.py         # ROC-AUC, Brier, calibration curve, HL test
 |   +-- visualization.py
 |   +-- run_pipeline.py        # Orchestrates the full analysis
 +-- results/
@@ -96,9 +99,12 @@ This will:
 2. Clean and build the SES index -> `data/processed/analysis.csv`
 3. Produce descriptive tables -> `results/tables/`
 4. Fit logistic-regression models -> `results/tables/model_*.csv`
-5. Fit the ordinal frequency model + Brant test -> `results/tables/model_ordinal_*.csv`
+5. Fit ordinal model + Brant test + partial PO -> `results/tables/model_ordinal_*.csv`
 6. Run the mediation analysis -> `results/tables/mediation_results.csv`
-7. Render figures -> `results/figures/`
+7. Run subgroup analysis -> `results/tables/subgroup_*.csv`
+8. Run multiple imputation (MICE) -> `results/tables/mi_*.csv`
+9. Compute calibration/discrimination -> `results/tables/discrimination_metrics.csv`
+10. Render figures -> `results/figures/`
 
 ### 3. Run on your own data
 
@@ -122,9 +128,12 @@ The pipeline is deterministic: the random seed is fixed in `config/config.yaml`
 | Preprocessing | `data_preprocessing.py` | `data/processed/analysis.csv` |
 | Descriptives | `descriptive_analysis.py` | `results/tables/descriptives_*.csv` |
 | Binary modelling | `statistical_models.py` | `results/tables/model_*.csv` |
-| Ordinal modelling + Brant test | `ordinal_models.py` | `results/tables/model_ordinal_*.csv` |
+| Ordinal + Brant + partial PO | `ordinal_models.py` | `results/tables/model_ordinal_*.csv`, `model_partial_po*.csv` |
 | Mediation analysis | `mediation_analysis.py` | `results/tables/mediation_results.csv` |
-| Figures | `visualization.py`, `ordinal_models.py`, `mediation_analysis.py` | `results/figures/*.png` |
+| Subgroup analysis | `subgroup_analysis.py` | `results/tables/subgroup_*.csv` |
+| Multiple imputation | `multiple_imputation.py` | `results/tables/mi_*.csv` |
+| Calibration & discrimination | `calibration.py` | `results/tables/discrimination_metrics.csv`, `calibration_curve.csv`, `hosmer_lemeshow.csv` |
+| Figures | `visualization.py` and analysis modules | `results/figures/*.png` |
 
 ---
 
@@ -145,6 +154,12 @@ The pipeline is deterministic: the random seed is fixed in `config/config.yaml`
   constraint for any Brant-flagged terms (cutpoint-specific odds ratios).
 - **Mediation:** SES -> HISB -> self-medication via the product-of-coefficients method
   with a **nonparametric bootstrap** (direct, indirect, and total effects).
+- **Subgroup analysis:** SES/HISB odds ratios fitted within strata of binary subgroups,
+  plus **likelihood-ratio tests for effect modification** (SES x subgroup interaction).
+- **Missing data:** **multiple imputation (MICE)** with Rubin's-rules pooling, compared
+  against complete-case analysis.
+- **Model performance:** **discrimination** (ROC-AUC), **overall accuracy** (Brier, log
+  loss), and **calibration** (reliability curve + Hosmer-Lemeshow), all cross-validated.
 - **Sensitivity:** SES x HISB interaction term.
 
 See [`docs/methodology.md`](docs/methodology.md) for the full analysis plan.
@@ -170,9 +185,9 @@ pytest -q
 - [x] Brant test of the proportional-odds assumption (`ordinal_models.py`)
 - [x] Partial proportional-odds (generalized ordered logit) model (`ordinal_models.py`)
 - [x] Mediation analysis (SES -> HISB -> self-medication) (`mediation_analysis.py`)
-- [ ] Subgroup analysis by residence
-- [ ] Multiple imputation for missing data
-- [ ] Calibration / discrimination metrics for the predictive model
+- [x] Subgroup analysis + effect-modification tests (`subgroup_analysis.py`)
+- [x] Multiple imputation for missing data (`multiple_imputation.py`)
+- [x] Calibration / discrimination metrics (`calibration.py`)
 
 ---
 

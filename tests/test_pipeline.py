@@ -12,12 +12,15 @@ import pandas as pd
 import pytest
 
 from src import (
+    calibration,
     data_preprocessing,
     descriptive_analysis,
     generate_synthetic_data,
     mediation_analysis,
+    multiple_imputation,
     ordinal_models,
     statistical_models,
+    subgroup_analysis,
 )
 
 
@@ -141,3 +144,31 @@ def test_partial_po_improves_fit(analysis: pd.DataFrame) -> None:
     prop = ordinal_models.fit(ordinal_models.prepare(analysis))
     ppo = ordinal_models.fit_partial_po(analysis, nonprop_terms=["self_treat_score"])
     assert ppo["loglik"] >= prop.llf - 1e-3
+
+
+def test_subgroup_stratified_and_interaction(analysis: pd.DataFrame) -> None:
+    or_table = subgroup_analysis.stratified_or(analysis, "chronic_condition")
+    assert {"level", "term", "odds_ratio", "or_ci_low", "or_ci_high"} <= set(or_table.columns)
+    assert (or_table["odds_ratio"] > 0).all()
+    inter = subgroup_analysis.interaction_test(analysis, "chronic_condition")
+    assert 0.0 <= inter["p_value"] <= 1.0
+
+
+def test_multiple_imputation_pooling(analysis: pd.DataFrame) -> None:
+    frame = multiple_imputation._model_frame(analysis)
+    missing = multiple_imputation.inject_missing(
+        frame, rate=0.15, cols=["hisb_score", "self_treat_score"], seed=3
+    )
+    assert missing["hisb_score"].isna().any()
+    pooled = multiple_imputation.multiple_imputation(missing, n_imp=3, n_burnin=2)
+    assert {"term", "odds_ratio", "p_value"} <= set(pooled.columns)
+    assert (pooled["odds_ratio"] > 0).all()
+
+
+def test_calibration_metrics_ranges(analysis: pd.DataFrame) -> None:
+    y, p_apparent, p_cv = calibration._predictions(analysis, n_splits=5, seed=0)
+    disc = calibration.discrimination_table(y, p_apparent, p_cv)
+    auc_cv = disc.loc[disc["metric"] == "ROC_AUC", "cross_validated"].iloc[0]
+    assert 0.5 <= auc_cv <= 1.0
+    hl = calibration.hosmer_lemeshow(y, p_cv, n_bins=10)
+    assert 0.0 <= hl["p_value"].iloc[0] <= 1.0

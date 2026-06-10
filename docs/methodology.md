@@ -76,6 +76,25 @@ multivariable models, entered as a numeric (per-point) term. Demographic covaria
    effects carry opposite signs (competitive / inconsistent mediation), the proportion
    mediated is reported only for completeness. Outputs: `mediation_results.csv` and
    `fig_mediation_effects.png`.
+8. **Subgroup analysis and effect modification.** For each configured binary subgroup
+   variable, the adjusted logistic model is fitted *within each stratum* and the SES and
+   HISB odds ratios are reported per stratum. Effect modification is formally tested with
+   a likelihood-ratio test comparing the pooled model with vs. without an
+   SES x subgroup interaction. Outputs: `subgroup_or.csv`, `subgroup_interaction.csv`,
+   `fig_subgroup_forest.png`.
+9. **Missing data: multiple imputation.** Missing predictor values are handled with
+   **multiple imputation by chained equations (MICE)**; the logistic model is fitted in
+   each imputed dataset and the estimates pooled by **Rubin's rules** (reporting the
+   fraction of missing information). Results are compared against a complete-case
+   (listwise-deletion) analysis. On the complete synthetic data, missingness is injected
+   MCAR for demonstration (set `mi.demo_missing: false` for real data). Outputs:
+   `mi_pooled.csv`, `mi_vs_completecase.csv`.
+10. **Predictive performance.** The adjusted model's **discrimination** (ROC-AUC),
+    **overall accuracy** (Brier score, log loss), and **calibration** (reliability curve
+    and the Hosmer-Lemeshow goodness-of-fit test) are assessed. To avoid optimistic bias,
+    predicted probabilities are generated out-of-sample by stratified k-fold
+    cross-validation. Outputs: `discrimination_metrics.csv`, `calibration_curve.csv`,
+    `hosmer_lemeshow.csv`, `fig_roc_curve.png`, `fig_calibration_curve.png`.
 
 ## Statistical software
 

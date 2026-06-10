@@ -5,7 +5,8 @@ Run with::
     python -m src.run_pipeline               # generate synthetic data + full analysis
     python -m src.run_pipeline --no-generate  # use existing data/raw/survey_raw.csv
 
-Stages: generate -> preprocess -> descriptives -> models -> figures.
+Stages: generate -> preprocess -> descriptives -> binary models -> ordinal/PPO ->
+mediation -> subgroup -> multiple imputation -> calibration -> figures.
 """
 
 from __future__ import annotations
@@ -16,12 +17,15 @@ import time
 import pandas as pd
 
 from . import (
+    calibration,
     data_preprocessing,
     descriptive_analysis,
     generate_synthetic_data,
     mediation_analysis,
+    multiple_imputation,
     ordinal_models,
     statistical_models,
+    subgroup_analysis,
     visualization,
 )
 from .config import PATHS
@@ -53,36 +57,48 @@ def main(argv=None) -> None:
                 f"--no-generate set but {PATHS.raw_data} does not exist. "
                 "Provide your survey data or run without --no-generate."
             )
-        print(f"[1/7] Using existing raw data: {PATHS.raw_data}")
+        print(f"[1/10] Using existing raw data: {PATHS.raw_data}")
     else:
-        print("[1/7] Generating synthetic data ...")
+        print("[1/10] Generating synthetic data ...")
         generate_synthetic_data.main()
 
     # 2. Preprocess
-    print("[2/7] Preprocessing ...")
+    print("[2/10] Preprocessing ...")
     analysis = data_preprocessing.main()
     analysis["ses_tertile"] = pd.Categorical(
         analysis["ses_tertile"], categories=["Low", "Middle", "High"], ordered=True
     )
 
     # 3. Descriptives
-    print("[3/7] Descriptive & bivariate analysis ...")
+    print("[3/10] Descriptive & bivariate analysis ...")
     descriptive_analysis.run(analysis)
 
     # 4. Models
-    print("[4/7] Fitting logistic-regression models ...")
+    print("[4/10] Fitting logistic-regression models ...")
     models = statistical_models.run(analysis)
 
-    # 5. Ordinal model on self-medication frequency (+ Brant test)
-    print("[5/7] Fitting ordinal model + Brant test + partial proportional odds ...")
+    # 5. Ordinal model on self-medication frequency (+ Brant test + partial PO)
+    print("[5/10] Fitting ordinal model + Brant test + partial proportional odds ...")
     ordinal_models.run(analysis)
 
     # 6. Mediation: SES -> HISB -> self-medication
-    print("[6/7] Running mediation analysis (bootstrap) ...")
+    print("[6/10] Running mediation analysis (bootstrap) ...")
     mediation_analysis.run(analysis)
 
-    # 7. Figures
-    print("[7/7] Rendering figures ...")
+    # 7. Subgroup / effect-modification analysis
+    print("[7/10] Running subgroup analysis ...")
+    subgroup_analysis.run(analysis)
+
+    # 8. Multiple imputation for missing data
+    print("[8/10] Running multiple imputation (MICE) ...")
+    multiple_imputation.run(analysis)
+
+    # 9. Calibration & discrimination metrics
+    print("[9/10] Computing calibration & discrimination metrics ...")
+    calibration.run(analysis)
+
+    # 10. Figures
+    print("[10/10] Rendering figures ...")
     visualization.run(analysis, adjusted_model=models["model_adjusted"])
 
     elapsed = time.perf_counter() - start
