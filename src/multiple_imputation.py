@@ -10,11 +10,11 @@ have missing values:
 On the synthetic data (which is complete), missingness is injected MCAR into the
 configured predictor columns so the demonstration is meaningful. On real data with
 genuine missingness, set ``mi.demo_missing: false`` in the config to impute the observed
-gaps directly.
+gaps directly. The demonstration runs for each outcome (OTC use, herbal use).
 
 Outputs:
-* ``mi_pooled.csv``          - MI-pooled odds ratios (with fraction of missing info).
-* ``mi_vs_completecase.csv`` - side-by-side OR comparison of both strategies.
+* ``mi_pooled__<outcome>.csv``          - MI-pooled odds ratios (with fraction missing info).
+* ``mi_vs_completecase__<outcome>.csv`` - side-by-side OR comparison of both strategies.
 """
 
 from __future__ import annotations
@@ -26,33 +26,31 @@ import statsmodels.formula.api as smf
 from scipy import stats
 from statsmodels.imputation import mice
 
+from . import model_spec
 from .config import CONFIG, PATHS
 
-OUTCOME = "self_medication"
 SES_CODE = {"Low": 0, "Middle": 1, "High": 2}
 _TERM_LABELS = {
     "C(ses_code, Treatment(reference=0))[T.1]": "SES: Middle (vs Low)",
     "C(ses_code, Treatment(reference=0))[T.2]": "SES: High (vs Low)",
-    "hisb_score": "Health info-seeking (per point)",
-    "self_treat_score": "Self-treat agreement (per point)",
+    "hisb_score": "Health info-seeking (per unit)",
     "Intercept": "Intercept",
 }
-_FORMULA = (
-    f"{OUTCOME} ~ C(ses_code, Treatment(reference=0)) + hisb_score + self_treat_score"
-)
 
 
-def _model_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _formula(outcome: str) -> str:
+    return f"{outcome} ~ C(ses_code, Treatment(reference=0)) + hisb_score"
+
+
+def _model_frame(df: pd.DataFrame, outcome: str) -> pd.DataFrame:
     """Numeric-only frame MICE can operate on."""
-    out = pd.DataFrame(
+    return pd.DataFrame(
         {
-            OUTCOME: df[OUTCOME].astype(int).to_numpy(),
+            outcome: df[outcome].astype(int).to_numpy(),
             "ses_code": df["ses_tertile"].astype(str).map(SES_CODE).to_numpy(),
             "hisb_score": df["hisb_score"].astype(float).to_numpy(),
-            "self_treat_score": df["self_treat_score"].astype(float).to_numpy(),
         }
     )
-    return out
 
 
 def inject_missing(df: pd.DataFrame, rate: float, cols: list, seed: int) -> pd.DataFrame:
@@ -91,61 +89,67 @@ def _or_table(names, params, bse, source: str, fmi=None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def complete_case(df_missing: pd.DataFrame):
+def complete_case(df_missing: pd.DataFrame, outcome: str):
     """Fit the listwise-deletion GLM; return (or_table, parameter_names)."""
-    res = smf.glm(_FORMULA, data=df_missing, family=sm.families.Binomial()).fit()
+    res = smf.glm(_formula(outcome), data=df_missing, family=sm.families.Binomial()).fit()
     names = list(res.params.index)
     table = _or_table(names, res.params.to_numpy(), res.bse.to_numpy(), "complete_case")
     return table, names
 
 
-def multiple_imputation(df_missing: pd.DataFrame, n_imp: int, n_burnin: int, names=None) -> pd.DataFrame:
+def multiple_imputation(df_missing: pd.DataFrame, outcome: str, n_imp: int, n_burnin: int, names=None) -> pd.DataFrame:
     imp = mice.MICEData(df_missing)
-    mi = mice.MICE(_FORMULA, sm.GLM, imp, init_kwds={"family": sm.families.Binomial()})
+    mi = mice.MICE(_formula(outcome), sm.GLM, imp, init_kwds={"family": sm.families.Binomial()})
     result = mi.fit(n_burnin, n_imp)
     if names is None:
-        # Param order matches a single GLM fit on the same formula/design.
-        ref = smf.glm(_FORMULA, data=df_missing.dropna(), family=sm.families.Binomial()).fit()
+        ref = smf.glm(_formula(outcome), data=df_missing.dropna(), family=sm.families.Binomial()).fit()
         names = list(ref.params.index)
     fmi = getattr(result, "frac_miss_info", None)
     return _or_table(names, result.params, result.bse, "multiple_imputation", fmi=fmi)
 
 
 def run(df: pd.DataFrame) -> dict:
-    """Run the MI demonstration and persist pooled + comparison tables."""
+    """Run the MI demonstration for each outcome and persist pooled + comparison tables."""
     PATHS.ensure_dirs()
     cfg = CONFIG.get("mi", {})
     seed = int(CONFIG["seed"])
-    frame = _model_frame(df)
+    results = {}
 
-    if cfg.get("demo_missing", True):
-        frame_missing = inject_missing(
-            frame,
-            rate=float(cfg.get("demo_missing_rate", 0.15)),
-            cols=cfg.get("demo_missing_cols", ["hisb_score", "self_treat_score"]),
-            seed=seed,
+    for oc in model_spec.outcomes():
+        outcome = oc["name"]
+        frame = _model_frame(df, outcome)
+
+        if cfg.get("demo_missing", True):
+            frame_missing = inject_missing(
+                frame,
+                rate=float(cfg.get("demo_missing_rate", 0.15)),
+                cols=cfg.get("demo_missing_cols", ["hisb_score"]),
+                seed=seed,
+            )
+        else:
+            frame_missing = frame
+
+        miss_summary = frame_missing.isna().mean().round(4)
+        print(f"[mi] {outcome} missing fractions: {miss_summary.to_dict()}")
+
+        cc, names = complete_case(frame_missing, outcome)
+        mi_pooled = multiple_imputation(
+            frame_missing,
+            outcome,
+            n_imp=int(cfg.get("n_imputations", 20)),
+            n_burnin=int(cfg.get("n_burnin", 10)),
+            names=names,
         )
-    else:
-        frame_missing = frame
 
-    miss_summary = frame_missing.isna().mean().round(4)
-    print(f"[mi] missing fractions: {miss_summary.to_dict()}")
+        mi_pooled.insert(0, "outcome", outcome)
+        mi_pooled.to_csv(PATHS.tables_dir / f"mi_pooled__{outcome}.csv", index=False)
 
-    cc, names = complete_case(frame_missing)
-    mi_pooled = multiple_imputation(
-        frame_missing,
-        n_imp=int(cfg.get("n_imputations", 20)),
-        n_burnin=int(cfg.get("n_burnin", 10)),
-        names=names,
-    )
-
-    mi_pooled.to_csv(PATHS.tables_dir / "mi_pooled.csv", index=False)
-    print("[mi] wrote mi_pooled.csv")
-
-    comparison = pd.concat([cc, mi_pooled], ignore_index=True)
-    comparison.to_csv(PATHS.tables_dir / "mi_vs_completecase.csv", index=False)
-    print("[mi] wrote mi_vs_completecase.csv")
-    return {"complete_case": cc, "mi_pooled": mi_pooled}
+        comparison = pd.concat([cc, mi_pooled[cc.columns]], ignore_index=True)
+        comparison.insert(0, "outcome", outcome)
+        comparison.to_csv(PATHS.tables_dir / f"mi_vs_completecase__{outcome}.csv", index=False)
+        print(f"[mi] wrote mi_pooled__{outcome}.csv + mi_vs_completecase__{outcome}.csv")
+        results[outcome] = {"complete_case": cc, "mi_pooled": mi_pooled}
+    return results
 
 
 def main() -> dict:

@@ -99,7 +99,7 @@ def main(argv=None) -> None:
 
     # 10. Figures
     print("[10/10] Rendering figures ...")
-    visualization.run(analysis, adjusted_model=models["model_adjusted"])
+    visualization.run(analysis, models=models)
 
     elapsed = time.perf_counter() - start
     print("=" * 70)

@@ -10,7 +10,9 @@
 
 A reproducible, end-to-end research analysis pipeline investigating how **socioeconomic
 status (SES)** and **health information-seeking behaviour (HISB)** predict
-**self-medication practices** in an adult population.
+**self-medication practices** in an adult population. Self-medication is operationalized
+as the daily use of **over-the-counter (OTC) drugs** and **herbal supplements**, analysed
+as two separate outcomes.
 
 > **Data note.** The repository ships with a fully reproducible *synthetic* dataset
 > generator so the entire pipeline runs out of the box. Replace the synthetic data with
@@ -21,19 +23,21 @@ status (SES)** and **health information-seeking behaviour (HISB)** predict
 
 ## Research questions
 
+Each question is answered separately for the two self-medication outcomes: **OTC drug
+use** and **herbal supplement use**.
+
 1. **RQ1.** Is socioeconomic status associated with the likelihood of self-medication?
-2. **RQ2.** Is health information-seeking behaviour associated with self-medication?
-3. **RQ3.** Do SES and HISB remain significant predictors after adjusting for the
-   Self_Treat attitude (`self_treat_score`)?
+2. **RQ2.** Is health information-seeking behaviour (HISB) associated with self-medication?
+3. **RQ3.** Do SES and HISB each remain significant predictors when modelled together?
 4. **RQ4.** Is there an interaction between SES and HISB on self-medication?
-5. **RQ5.** Do SES and HISB predict the *frequency* of self-medication (ordinal)?
+5. **RQ5.** Do SES and HISB predict the *frequency* of self-medication (ordinal counts)?
 
 ## Hypotheses
 
 - **H1.** Lower SES is associated with higher odds of self-medication.
 - **H2.** Higher health information-seeking behaviour is associated with self-medication
   (direction tested empirically; literature is mixed).
-- **H3.** Associations persist after covariate adjustment.
+- **H3.** SES and HISB remain independently associated when modelled jointly.
 
 ---
 
@@ -57,6 +61,7 @@ self-medication-ses-study/
 |   +-- methodology.md         # Study design, measures, analysis plan
 +-- src/
 |   +-- config.py              # Loads config.yaml
+|   +-- model_spec.py          # Shared predictor formulas + outcome list
 |   +-- generate_synthetic_data.py
 |   +-- data_preprocessing.py
 |   +-- descriptive_analysis.py
@@ -100,15 +105,17 @@ python -m src.run_pipeline
 This will:
 
 1. Generate a synthetic dataset -> `data/raw/survey_raw.csv`
-2. Clean and build the SES index -> `data/processed/analysis.csv`
+2. Clean and build the SES + HISB composites -> `data/processed/analysis.csv`
 3. Produce descriptive tables -> `results/tables/`
-4. Fit logistic-regression models -> `results/tables/model_*.csv`
-5. Fit ordinal model + Brant test + partial PO -> `results/tables/model_ordinal_*.csv`
-6. Run the mediation analysis -> `results/tables/mediation_results.csv`
-7. Run subgroup analysis -> `results/tables/subgroup_*.csv`
-8. Run multiple imputation (MICE) -> `results/tables/mi_*.csv`
-9. Compute calibration/discrimination -> `results/tables/discrimination_metrics.csv`
+4. Fit logistic-regression models (per outcome) -> `results/tables/model_*__<outcome>.csv`
+5. Fit ordinal model + Brant test + partial PO -> `results/tables/model_ordinal_*__<outcome>.csv`
+6. Run the mediation analysis -> `results/tables/mediation_results__<outcome>.csv`
+7. Run subgroup analysis -> `results/tables/subgroup_*__<outcome>.csv`
+8. Run multiple imputation (MICE) -> `results/tables/mi_*__<outcome>.csv`
+9. Compute calibration/discrimination -> `results/tables/discrimination_metrics__<outcome>.csv`
 10. Render figures -> `results/figures/`
+
+All per-outcome outputs are written twice - once for `otc_use` and once for `herbal_use`.
 
 ### 3. Run on your own data
 
@@ -130,13 +137,13 @@ The pipeline is deterministic: the random seed is fixed in `config/config.yaml`
 |-------|--------|--------|
 | Data generation | `generate_synthetic_data.py` | `data/raw/survey_raw.csv` |
 | Preprocessing | `data_preprocessing.py` | `data/processed/analysis.csv` |
-| Descriptives | `descriptive_analysis.py` | `results/tables/descriptives_*.csv` |
-| Binary modelling | `statistical_models.py` | `results/tables/model_*.csv` |
-| Ordinal + Brant + partial PO | `ordinal_models.py` | `results/tables/model_ordinal_*.csv`, `model_partial_po*.csv` |
-| Mediation analysis | `mediation_analysis.py` | `results/tables/mediation_results.csv` |
-| Subgroup analysis | `subgroup_analysis.py` | `results/tables/subgroup_*.csv` |
-| Multiple imputation | `multiple_imputation.py` | `results/tables/mi_*.csv` |
-| Calibration & discrimination | `calibration.py` | `results/tables/discrimination_metrics.csv`, `calibration_curve.csv`, `hosmer_lemeshow.csv` |
+| Descriptives | `descriptive_analysis.py` | `results/tables/descriptives_*.csv`, `bivariate_chi2.csv` |
+| Binary modelling | `statistical_models.py` | `results/tables/model_*__<outcome>.csv` |
+| Ordinal + Brant + partial PO | `ordinal_models.py` | `results/tables/model_ordinal_*__<outcome>.csv`, `model_partial_po*__<outcome>.csv` |
+| Mediation analysis | `mediation_analysis.py` | `results/tables/mediation_results__<outcome>.csv` |
+| Subgroup analysis | `subgroup_analysis.py` | `results/tables/subgroup_*__<outcome>.csv` |
+| Multiple imputation | `multiple_imputation.py` | `results/tables/mi_*__<outcome>.csv` |
+| Calibration & discrimination | `calibration.py` | `results/tables/discrimination_metrics__<outcome>.csv`, `calibration_curve__<outcome>.csv`, `hosmer_lemeshow__<outcome>.csv` |
 | Figures | `visualization.py` and analysis modules | `results/figures/*.png` |
 
 ---
@@ -144,18 +151,23 @@ The pipeline is deterministic: the random seed is fixed in `config/config.yaml`
 ## Statistical methods
 
 - **Descriptive statistics:** frequencies, means/SD, group comparisons.
-- **Bivariate tests:** Pearson chi-square (categorical), independent t-test / ANOVA.
-- **SES index:** standardized composite of education, income, and occupation
+- **Bivariate tests:** Pearson chi-square of each categorical predictor vs. each outcome.
+- **SES index:** standardized composite of **education** and **household income**
   (z-score mean), binned into tertiles (Low / Middle / High).
-- **Primary model:** multivariable **binary logistic regression** with
-  self-medication (yes/no) as the outcome; reports adjusted odds ratios (aOR) with
-  95% confidence intervals.
+- **HISB composite:** a single standardized score combining the active information-seeking
+  items (Med7-9, the two DTCA items, and Self_Treat) with information-source breadth (count
+  of `Info_*` sources). Entered as a per-unit predictor.
+- **Outcomes:** self-medication is modelled as two separate outcomes - **OTC drug use**
+  (`otc_use`) and **herbal supplement use** (`herbal_use`) - each derived from a daily-use
+  count (`NumOTC`, `NumHerbal`).
+- **Primary model:** multivariable **binary logistic regression** with each outcome
+  (yes/no) regressed on SES + HISB; reports adjusted odds ratios (aOR) with 95% CIs.
 - **Secondary model:** **proportional-odds ordinal logistic regression** on
-  self-medication *frequency* (Never < Rarely < Sometimes < Often); reports
-  proportional-odds ratios and predicted category probabilities by SES. The
-  parallel-lines assumption is checked with a **Brant test**, and a
-  **partial proportional-odds (generalized ordered logit)** model relaxes the
-  constraint for any Brant-flagged terms (cutpoint-specific odds ratios).
+  self-medication *frequency* (None < One < Two < Three+); reports proportional-odds
+  ratios and predicted category probabilities by SES. The parallel-lines assumption is
+  checked with a **Brant test**, and a **partial proportional-odds (generalized ordered
+  logit)** model relaxes the constraint for any Brant-flagged terms (cutpoint-specific
+  odds ratios).
 - **Mediation:** SES -> HISB -> self-medication via the product-of-coefficients method
   with a **nonparametric bootstrap** (direct, indirect, and total effects).
 - **Subgroup analysis:** SES/HISB odds ratios fitted within strata of binary subgroups,

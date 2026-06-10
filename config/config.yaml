@@ -13,31 +13,40 @@ synthetic:
   n_respondents: 1500
 
 modelling:
-  outcome: self_medication            # binary 0/1
-  ses_reference: "Low"                # reference category for SES tertile
-  covariates:
-    - self_treat_score                # Self_Treat Likert item (1-5), adjusted as numeric
+  # Self-medication is modelled as TWO separate outcomes (built from the daily-use
+  # counts NumOTC and NumHerbal). Each gets its own set of models.
+  outcomes:
+    - name: otc_use
+      label: "OTC drug use"
+      count_var: NumOTC
+      freq_var: otc_freq
+    - name: herbal_use
+      label: "Herbal supplement use"
+      count_var: NumHerbal
+      freq_var: herbal_freq
+  ses_reference: "Low"        # reference category for SES tertile
+  covariates: []              # predictors are SES + HISB only; Self_Treat is part of HISB
   alpha: 0.05
 
 mediation:
-  # X = ses_score (SES composite), M = hisb_score, Y = self_medication
+  # X = ses_score (SES composite), M = hisb_score, Y = each outcome
   n_boot: 1000
 
 subgroup:
-  # Binary variables to stratify the SES/HISB associations over.
+  # Binary variables to stratify the SES/HISB associations over. These are
+  # advertisement-driven information behaviours (Yes/No) drawn from the HISB block.
   variables:
-    - chronic_condition
-    - internet_access
+    - DTCA_Info
+    - DTCA_Prescribe
 
 mi:
   # Multiple imputation demo. Missingness is injected (MCAR) into these predictors
   # so the imputation is meaningful on the synthetic data; on real data with genuine
-  # missingness set demo_missing_rate: 0.0 to impute the observed gaps only.
+  # missingness set demo_missing: false to impute the observed gaps only.
   demo_missing: true
   demo_missing_rate: 0.15
   demo_missing_cols:
     - hisb_score
-    - self_treat_score
   n_imputations: 20
   n_burnin: 10
 

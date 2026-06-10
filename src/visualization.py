@@ -1,7 +1,8 @@
 """Figure generation for the study.
 
 All figures are written as PNGs to ``results/figures``. Uses a non-interactive
-matplotlib backend so it runs headless (CI, servers).
+matplotlib backend so it runs headless (CI, servers). Per-outcome figures are suffixed
+with the outcome name (e.g. ``fig_forest_odds_ratios__otc_use.png``).
 """
 
 from __future__ import annotations
@@ -15,11 +16,11 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
+from . import model_spec  # noqa: E402
 from .config import PATHS  # noqa: E402
 from .statistical_models import odds_ratio_table  # noqa: E402
 
 sns.set_theme(style="whitegrid", context="talk")
-OUTCOME = "self_medication"
 
 
 def _save(fig: plt.Figure, name: str) -> None:
@@ -29,64 +30,65 @@ def _save(fig: plt.Figure, name: str) -> None:
     print(f"[viz] wrote {path.name}")
 
 
-def fig_outcome_rate_by_ses(df: pd.DataFrame) -> None:
+def fig_outcome_rate_by_ses(df: pd.DataFrame, outcome: str, label: str) -> None:
     rate = (
-        df.groupby("ses_tertile", observed=True)[OUTCOME].mean().mul(100).reset_index()
+        df.groupby("ses_tertile", observed=True)[outcome].mean().mul(100).reset_index()
     )
     fig, ax = plt.subplots(figsize=(8, 5))
-    sns.barplot(data=rate, x="ses_tertile", y=OUTCOME, ax=ax, hue="ses_tertile",
+    sns.barplot(data=rate, x="ses_tertile", y=outcome, ax=ax, hue="ses_tertile",
                 palette="viridis", legend=False)
     ax.set_xlabel("Socioeconomic status (tertile)")
-    ax.set_ylabel("Self-medication (%)")
-    ax.set_title("Self-medication prevalence by SES")
+    ax.set_ylabel(f"{label} (%)")
+    ax.set_title(f"{label} prevalence by SES")
     for c in ax.containers:
         ax.bar_label(c, fmt="%.1f%%", padding=3)
-    _save(fig, "fig_selfmed_by_ses.png")
+    _save(fig, f"fig_rate_by_ses__{outcome}.png")
 
 
-def fig_hisb_distribution(df: pd.DataFrame) -> None:
+def fig_hisb_distribution(df: pd.DataFrame, outcome: str, label: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 5))
     sns.histplot(
-        data=df, x="hisb_score", hue=OUTCOME, multiple="stack",
-        bins=range(0, 22), palette="Set2", ax=ax,
+        data=df, x="hisb_score", hue=outcome, multiple="stack",
+        bins=30, palette="Set2", ax=ax,
     )
-    ax.set_xlabel("Health information-seeking score (0-20)")
+    ax.set_xlabel("HISB composite score (standardized)")
     ax.set_ylabel("Respondents")
-    ax.set_title("HISB distribution by self-medication status")
-    _save(fig, "fig_hisb_distribution.png")
+    ax.set_title(f"HISB distribution by {label.lower()} status")
+    _save(fig, f"fig_hisb_distribution__{outcome}.png")
 
 
-def fig_ses_score_by_outcome(df: pd.DataFrame) -> None:
-    fig, ax = plt.subplots(figsize=(8, 5))
-    sns.boxplot(data=df, x=OUTCOME, y="ses_score", ax=ax, hue=OUTCOME,
-                palette="pastel", legend=False)
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["No", "Yes"])
-    ax.set_xlabel("Self-medication")
-    ax.set_ylabel("SES composite (z)")
-    ax.set_title("SES score by self-medication status")
-    _save(fig, "fig_ses_score_by_outcome.png")
+def fig_count_distribution(df: pd.DataFrame) -> None:
+    """Side-by-side distribution of the daily OTC and herbal counts."""
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    for ax, col, title in zip(
+        axes, ["NumOTC", "NumHerbal"], ["OTC drugs", "Herbal supplements"], strict=True
+    ):
+        vals = df[col].clip(upper=5)
+        sns.histplot(vals, bins=range(0, 7), ax=ax, color="#2b6cb0")
+        ax.set_xlabel(f"Number of {title} taken daily")
+        ax.set_title(title)
+    axes[0].set_ylabel("Respondents")
+    fig.suptitle("Daily self-medication counts")
+    _save(fig, "fig_count_distribution.png")
 
 
 def _pretty_term(term: str) -> str:
-    """Map verbose patsy term names to readable labels for plotting."""
     mapping = {
         "C(ses_tertile, Treatment(reference='Low'))[T.Middle]": "SES: Middle (vs Low)",
         "C(ses_tertile, Treatment(reference='Low'))[T.High]": "SES: High (vs Low)",
-        "self_treat_score": "Self-treat agreement (per point)",
-        "hisb_score": "Health info-seeking (per point)",
+        "hisb_score": "Health info-seeking (per unit)",
     }
     return mapping.get(term, term)
 
 
-def fig_forest_odds_ratios(adjusted_model) -> None:
+def fig_forest_odds_ratios(adjusted_model, outcome: str, label: str) -> None:
     """Forest plot of adjusted odds ratios (excluding the intercept)."""
     table = odds_ratio_table(adjusted_model, "model_adjusted")
     table = table[table["term"] != "Intercept"].copy()
     table["term"] = table["term"].map(_pretty_term)
-    table = table.iloc[::-1]  # nicer top-down ordering
+    table = table.iloc[::-1]
 
-    fig, ax = plt.subplots(figsize=(9, max(4, 0.5 * len(table))))
+    fig, ax = plt.subplots(figsize=(9, max(4, 0.7 * len(table))))
     y = np.arange(len(table))
     ax.errorbar(
         table["odds_ratio"], y,
@@ -100,28 +102,31 @@ def fig_forest_odds_ratios(adjusted_model) -> None:
     ax.set_yticks(y)
     ax.set_yticklabels(table["term"])
     ax.set_xlabel("Adjusted odds ratio (95% CI)")
-    ax.set_title("Predictors of self-medication")
-    _save(fig, "fig_forest_odds_ratios.png")
+    ax.set_title(f"Predictors of {label.lower()}")
+    _save(fig, f"fig_forest_odds_ratios__{outcome}.png")
 
 
 def fig_correlation_heatmap(df: pd.DataFrame) -> None:
-    cols = ["income_monthly", "hisb_score", "ses_score", OUTCOME]
+    cols = ["ses_score", "hisb_score", "self_treat_score", "info_source_count",
+            "NumOTC", "NumHerbal"]
     corr = df[cols].corr()
-    fig, ax = plt.subplots(figsize=(7, 6))
+    fig, ax = plt.subplots(figsize=(8, 7))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)
     ax.set_title("Correlation matrix")
     _save(fig, "fig_correlation_heatmap.png")
 
 
-def run(df: pd.DataFrame, adjusted_model=None) -> None:
-    """Render all figures."""
+def run(df: pd.DataFrame, models: dict | None = None) -> None:
+    """Render all figures. ``models`` maps outcome name -> {model_name: result}."""
     PATHS.ensure_dirs()
-    fig_outcome_rate_by_ses(df)
-    fig_hisb_distribution(df)
-    fig_ses_score_by_outcome(df)
+    fig_count_distribution(df)
     fig_correlation_heatmap(df)
-    if adjusted_model is not None:
-        fig_forest_odds_ratios(adjusted_model)
+    for oc in model_spec.outcomes():
+        outcome, label = oc["name"], oc["label"]
+        fig_outcome_rate_by_ses(df, outcome, label)
+        fig_hisb_distribution(df, outcome, label)
+        if models is not None and outcome in models:
+            fig_forest_odds_ratios(models[outcome]["model_adjusted"], outcome, label)
 
 
 def main() -> None:
@@ -131,8 +136,8 @@ def main() -> None:
     df["ses_tertile"] = pd.Categorical(
         df["ses_tertile"], categories=["Low", "Middle", "High"], ordered=True
     )
-    models = build_models(df)
-    run(df, adjusted_model=models["model_adjusted"])
+    models = {oc["name"]: build_models(df, oc["name"]) for oc in model_spec.outcomes()}
+    run(df, models=models)
 
 
 if __name__ == "__main__":

@@ -1,19 +1,15 @@
 """Ordinal (proportional-odds) regression on self-medication *frequency*.
 
-The secondary outcome ``self_medication_freq`` is an ordered category:
+Each outcome's daily-use count is collapsed into an ordered category:
 
-    Never < Rarely < Sometimes < Often
+    None < One < Two < Three+
 
-We fit a proportional-odds ordinal logistic regression (cumulative logit link) with
-the same predictor set as the binary model: SES tertile, health information-seeking
-score, and the demographic covariates. Coefficients are exported as proportional-odds
-ratios (OR > 1 => higher odds of being in a *more frequent* category).
+For every outcome (OTC drugs, herbal supplements) we fit a proportional-odds ordinal
+logistic regression (cumulative logit link) with the study predictors: SES tertile and
+the HISB composite. We then test the parallel-lines assumption (Brant) and, where it is
+violated, fit a partial proportional-odds model that frees the offending term(s).
 
-Outputs (written to ``results/``):
-* ``model_ordinal_freq.csv``        - OR table (slopes only, with 95% CIs).
-* ``model_ordinal_thresholds.csv``  - estimated cutpoints between categories.
-* ``model_ordinal_fit.csv``         - log-likelihood, pseudo-R2, AIC/BIC.
-* ``fig_freq_pred_by_ses.png``      - predicted category probabilities by SES.
+Outputs are suffixed with the outcome name, e.g. ``model_ordinal_freq__otc_use.csv``.
 """
 
 from __future__ import annotations
@@ -31,59 +27,48 @@ from scipy import optimize, stats  # noqa: E402
 from scipy.special import expit  # noqa: E402
 from statsmodels.miscmodels.ordinal_model import OrderedModel  # noqa: E402
 
+from . import model_spec  # noqa: E402
 from .config import CONFIG, PATHS  # noqa: E402
 
-FREQ_ORDER = ["Never", "Rarely", "Sometimes", "Often"]
-OUTCOME = "self_medication_freq"
+FREQ_ORDER = ["None", "One", "Two", "Three+"]
 
 _PRETTY_TERMS = {
     "C(ses_tertile, Treatment(reference='Low'))[T.Middle]": "SES: Middle (vs Low)",
     "C(ses_tertile, Treatment(reference='Low'))[T.High]": "SES: High (vs Low)",
-    "self_treat_score": "Self-treat agreement (per point)",
-    "hisb_score": "Health info-seeking (per point)",
+    "hisb_score": "Health info-seeking (per unit)",
 }
 
 
 def _design_formula() -> str:
     """Right-hand-side formula (intercept dropped later for the ordinal model)."""
-    ref = CONFIG["modelling"]["ses_reference"]
-    ses = f"C(ses_tertile, Treatment(reference='{ref}'))"
-    covariates = CONFIG["modelling"]["covariates"]
-    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
-    cov_terms = [c if c in numeric else f"C({c})" for c in covariates]
-    return " + ".join([ses, "hisb_score", *cov_terms])
+    return model_spec.adjusted_rhs()
 
 
-def prepare(df: pd.DataFrame) -> pd.DataFrame:
+def prepare(df: pd.DataFrame, freq_col: str) -> pd.DataFrame:
     """Return a copy with the ordered frequency outcome and SES category set."""
     df = df.copy()
-    df[OUTCOME] = pd.Categorical(df[OUTCOME], categories=FREQ_ORDER, ordered=True)
+    df[freq_col] = pd.Categorical(df[freq_col], categories=FREQ_ORDER, ordered=True)
     df["ses_tertile"] = pd.Categorical(
         df["ses_tertile"], categories=["Low", "Middle", "High"], ordered=True
     )
-    df = df.dropna(subset=[OUTCOME])
+    df = df.dropna(subset=[freq_col])
     return df
 
 
-def build_design(df: pd.DataFrame):
-    """Build the (endog, exog) pair for OrderedModel.
-
-    The intercept is removed because OrderedModel estimates category thresholds in its
-    place; treatment (reference) coding is preserved for every categorical predictor.
-    """
+def build_design(df: pd.DataFrame, freq_col: str):
+    """Build the (endog, exog, design_info) triple for OrderedModel."""
     X = patsy.dmatrix(_design_formula(), df, return_type="dataframe")
     design_info = X.design_info
     X = X.drop(columns=["Intercept"])
-    y = df[OUTCOME]
+    y = df[freq_col]
     return y, X, design_info
 
 
-def fit(df: pd.DataFrame):
+def fit(df: pd.DataFrame, freq_col: str):
     """Fit the proportional-odds model and return the statsmodels result."""
-    y, X, design_info = build_design(df)
+    y, X, design_info = build_design(df, freq_col)
     model = OrderedModel(y, X, distr="logit")
     result = model.fit(method="bfgs", disp=False)
-    # Stash design info for prediction grids.
     result._design_info = design_info
     result._exog_columns = list(X.columns)
     return result
@@ -134,11 +119,8 @@ def fit_table(result) -> pd.DataFrame:
 
 
 def _reference_row(df: pd.DataFrame) -> dict:
-    """Covariate values held fixed in the prediction grid (means / reference levels)."""
-    return {
-        "hisb_score": df["hisb_score"].mean(),
-        "self_treat_score": df["self_treat_score"].mean(),
-    }
+    """Predictor values held fixed in the prediction grid (means / reference levels)."""
+    return {"hisb_score": df["hisb_score"].mean()}
 
 
 def predicted_probs_by_ses(result, df: pd.DataFrame) -> pd.DataFrame:
@@ -158,7 +140,7 @@ def predicted_probs_by_ses(result, df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def fig_predicted_by_ses(pred: pd.DataFrame) -> None:
+def fig_predicted_by_ses(pred: pd.DataFrame, outcome: str, label: str) -> None:
     fig, ax = plt.subplots(figsize=(9, 5.5))
     bottom = np.zeros(len(pred))
     colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(FREQ_ORDER)))
@@ -167,28 +149,27 @@ def fig_predicted_by_ses(pred: pd.DataFrame) -> None:
         bottom += pred[cat].to_numpy()
     ax.set_xlabel("Socioeconomic status (tertile)")
     ax.set_ylabel("Predicted probability")
-    ax.set_title("Self-medication frequency by SES (proportional-odds model)")
+    ax.set_title(f"{label} frequency by SES (proportional-odds model)")
     ax.set_ylim(0, 1)
     ax.legend(title="Frequency", bbox_to_anchor=(1.02, 1), loc="upper left")
-    path = PATHS.figures_dir / "fig_freq_pred_by_ses.png"
+    path = PATHS.figures_dir / f"fig_freq_pred_by_ses__{outcome}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[ordinal] wrote {path.name}")
 
 
-def brant_test(df: pd.DataFrame) -> pd.DataFrame:
+def brant_test(df: pd.DataFrame, freq_col: str) -> pd.DataFrame:
     """Brant (1990) test of the proportional-odds (parallel-lines) assumption.
 
     Fits the J = K-1 binary "cumulative" logistic models P(Y >= j) and tests whether
-    the predictor slopes are equal across them (the parallel-lines assumption). Returns
-    an omnibus row plus a per-predictor row. A small p-value (< 0.05) indicates the
-    assumption is violated for that term / overall.
+    the predictor slopes are equal across them. Returns an omnibus row plus a
+    per-predictor row. A small p-value (< 0.05) indicates the assumption is violated.
     """
-    data = prepare(df)
+    data = prepare(df, freq_col)
     X = patsy.dmatrix(_design_formula(), data, return_type="dataframe")
     predictor_names = [c for c in X.columns if c != "Intercept"]
     Xmat = X.to_numpy()
-    y = data[OUTCOME].cat.codes.to_numpy()
+    y = data[freq_col].cat.codes.to_numpy()
     n, p_full = Xmat.shape
     p = p_full - 1  # predictors excluding intercept
     K = len(FREQ_ORDER)
@@ -207,7 +188,6 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
 
     inv_blocks = [np.linalg.pinv(xtwx(pis[:, j] * (1 - pis[:, j]))) for j in range(J)]
 
-    # Full covariance of stacked predictor coefficients (intercepts dropped).
     var = np.zeros((J * p, J * p))
     for j in range(J):
         for m in range(J):
@@ -215,7 +195,7 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
                 cov = inv_blocks[j]
             else:
                 a_, b_ = min(j, m), max(j, m)
-                w_jm = pis[:, b_] * (1 - pis[:, a_])  # cov of cumulative indicators
+                w_jm = pis[:, b_] * (1 - pis[:, a_])
                 cov = inv_blocks[j] @ xtwx(w_jm) @ inv_blocks[m]
             var[j * p:(j + 1) * p, m * p:(m + 1) * p] = cov[1:, 1:]
 
@@ -227,7 +207,6 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
         stat = float(diff @ np.linalg.solve(vcv, diff))
         return stat, contrast.shape[0]
 
-    # Omnibus: beta_m - beta_1 = 0 for m = 2..J across all predictors.
     omni = np.zeros(((J - 1) * p, J * p))
     for m in range(1, J):
         omni[(m - 1) * p:m * p, 0:p] = -np.eye(p)
@@ -244,7 +223,6 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
         }
     ]
 
-    # Per-predictor contrasts.
     for k, name in enumerate(predictor_names):
         ck = np.zeros((J - 1, J * p))
         for m in range(1, J):
@@ -269,28 +247,25 @@ def _threshold_labels() -> list[str]:
     return [f">= {FREQ_ORDER[t]}" for t in range(1, len(FREQ_ORDER))]
 
 
-def fit_partial_po(df: pd.DataFrame, nonprop_terms=None, alpha: float = 0.05) -> dict:
+def fit_partial_po(df: pd.DataFrame, freq_col: str, nonprop_terms=None, alpha: float = 0.05) -> dict:
     """Fit a partial proportional-odds (generalized ordered logit) model by MLE.
 
-    Terms that satisfy the proportional-odds assumption share one coefficient across all
+    Terms satisfying the proportional-odds assumption share one coefficient across all
     cutpoints; terms flagged by the Brant test (p < ``alpha``) are *freed* to take
     cutpoint-specific coefficients. When ``nonprop_terms`` is None the violating terms
     are selected automatically from :func:`brant_test`.
-
-    Returns a dict with the fitted parameters, an odds-ratio table, a fit-statistics
-    table, and the list of non-proportional terms.
     """
-    data = prepare(df)
-    _, X, _ = build_design(data)
+    data = prepare(df, freq_col)
+    _, X, _ = build_design(data, freq_col)
     cols = list(X.columns)
     Xmat = X.to_numpy()
-    y = data[OUTCOME].cat.codes.to_numpy()
+    y = data[freq_col].cat.codes.to_numpy()
     n = len(y)
     K = len(FREQ_ORDER)
     J = K - 1
 
     if nonprop_terms is None:
-        bt = brant_test(df)
+        bt = brant_test(df, freq_col)
         mask = (bt["raw_term"] != "") & (bt["p_value"] < alpha)
         nonprop_terms = list(bt.loc[mask, "raw_term"])
     nonprop_terms = [c for c in nonprop_terms if c in cols]
@@ -327,7 +302,6 @@ def fit_partial_po(df: pd.DataFrame, nonprop_terms=None, alpha: float = 0.05) ->
         pi = np.clip(prob[np.arange(n), y], 1e-9, 1.0)
         return -np.sum(np.log(pi))
 
-    # Initialise thresholds from the marginal cumulative log-odds; slopes at 0.
     theta0 = np.zeros(J + n_prop + n_non * J)
     for t in range(J):
         frac = np.clip((y >= (t + 1)).mean(), 1e-3, 1 - 1e-3)
@@ -340,17 +314,13 @@ def fit_partial_po(df: pd.DataFrame, nonprop_terms=None, alpha: float = 0.05) ->
 
     labels = _threshold_labels()
     rows = []
-    # Proportional terms: one shared coefficient.
     for j, idx in enumerate(prop_idx):
         pos = J + j
-        coef, s = theta[pos], se[pos]
-        rows.append(_or_row(cols[idx], "proportional (all cutpoints)", coef, s))
-    # Non-proportional terms: cutpoint-specific coefficients.
+        rows.append(_or_row(cols[idx], "proportional (all cutpoints)", theta[pos], se[pos]))
     for m, idx in enumerate(nonprop_idx):
         for t in range(J):
             pos = J + n_prop + m * J + t
-            coef, s = theta[pos], se[pos]
-            rows.append(_or_row(cols[idx], labels[t], coef, s))
+            rows.append(_or_row(cols[idx], labels[t], theta[pos], se[pos]))
     or_table = pd.DataFrame(rows)
 
     n_params = theta.size
@@ -395,12 +365,15 @@ def _or_row(raw_term: str, threshold: str, coef: float, se: float) -> dict:
     }
 
 
-def fig_partial_po(or_table: pd.DataFrame, nonprop_terms: list) -> None:
+def fig_partial_po(or_table: pd.DataFrame, nonprop_terms: list, outcome: str) -> None:
     """Plot cutpoint-specific odds ratios for the non-proportional terms."""
     if not nonprop_terms:
         return
     pretty = [_PRETTY_TERMS.get(c, c) for c in nonprop_terms]
-    sub = or_table[or_table["term"].isin(pretty) & (or_table["threshold"] != "proportional (all cutpoints)")]
+    sub = or_table[
+        or_table["term"].isin(pretty)
+        & (or_table["threshold"] != "proportional (all cutpoints)")
+    ]
     if sub.empty:
         return
     fig, ax = plt.subplots(figsize=(9, 5.5))
@@ -416,49 +389,59 @@ def fig_partial_po(or_table: pd.DataFrame, nonprop_terms: list) -> None:
     ax.set_ylabel("Odds ratio")
     ax.set_title("Partial proportional odds: cutpoint-specific effects")
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    path = PATHS.figures_dir / "fig_partial_po_or.png"
+    path = PATHS.figures_dir / f"fig_partial_po_or__{outcome}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[ordinal] wrote {path.name}")
 
 
-def run(df: pd.DataFrame):
-    """Fit the ordinal model, export tables + figure, return the fitted result."""
-    PATHS.ensure_dirs()
-    data = prepare(df)
-    result = fit(data)
+def run_for_outcome(df: pd.DataFrame, outcome: str, freq_col: str, label: str):
+    """Fit the ordinal + PPO models for a single outcome and export everything."""
+    data = prepare(df, freq_col)
+    result = fit(data, freq_col)
 
-    odds_ratio_table(result).to_csv(PATHS.tables_dir / "model_ordinal_freq.csv", index=False)
-    print("[ordinal] wrote model_ordinal_freq.csv")
-    thresholds_table(result).to_csv(
-        PATHS.tables_dir / "model_ordinal_thresholds.csv", index=False
+    odds_ratio_table(result).to_csv(
+        PATHS.tables_dir / f"model_ordinal_freq__{outcome}.csv", index=False
     )
-    print("[ordinal] wrote model_ordinal_thresholds.csv")
-    fit_table(result).to_csv(PATHS.tables_dir / "model_ordinal_fit.csv", index=False)
-    print("[ordinal] wrote model_ordinal_fit.csv")
+    thresholds_table(result).to_csv(
+        PATHS.tables_dir / f"model_ordinal_thresholds__{outcome}.csv", index=False
+    )
+    fit_table(result).to_csv(
+        PATHS.tables_dir / f"model_ordinal_fit__{outcome}.csv", index=False
+    )
+    print(f"[ordinal] wrote model_ordinal_* for {outcome}")
 
-    brant = brant_test(df)
-    brant.to_csv(PATHS.tables_dir / "model_ordinal_brant.csv", index=False)
-    print("[ordinal] wrote model_ordinal_brant.csv (proportional-odds assumption)")
+    brant = brant_test(df, freq_col)
+    brant.to_csv(PATHS.tables_dir / f"model_ordinal_brant__{outcome}.csv", index=False)
+    print(f"[ordinal] wrote model_ordinal_brant__{outcome}.csv")
 
-    # Partial proportional odds: free the Brant-flagged terms across cutpoints.
-    ppo = fit_partial_po(df)
-    ppo["or_table"].to_csv(PATHS.tables_dir / "model_partial_po.csv", index=False)
-    ppo["fit"].to_csv(PATHS.tables_dir / "model_partial_po_fit.csv", index=False)
+    ppo = fit_partial_po(df, freq_col)
+    ppo["or_table"].to_csv(PATHS.tables_dir / f"model_partial_po__{outcome}.csv", index=False)
+    ppo["fit"].to_csv(PATHS.tables_dir / f"model_partial_po_fit__{outcome}.csv", index=False)
     print(
-        "[ordinal] wrote model_partial_po.csv "
+        f"[ordinal] wrote model_partial_po__{outcome}.csv "
         f"(non-proportional terms: {ppo['fit'].iloc[0]['nonproportional_terms']})"
     )
-    fig_partial_po(ppo["or_table"], ppo["nonprop_terms"])
+    fig_partial_po(ppo["or_table"], ppo["nonprop_terms"], outcome)
 
     pred = predicted_probs_by_ses(result, data)
-    pred.round(4).to_csv(PATHS.tables_dir / "ordinal_pred_by_ses.csv", index=False)
-    fig_predicted_by_ses(pred)
+    pred.round(4).to_csv(PATHS.tables_dir / f"ordinal_pred_by_ses__{outcome}.csv", index=False)
+    fig_predicted_by_ses(pred, outcome, label)
     return result
+
+
+def run(df: pd.DataFrame):
+    """Fit ordinal + Brant + partial PO models for every outcome."""
+    PATHS.ensure_dirs()
+    results = {}
+    for oc in model_spec.outcomes():
+        results[oc["name"]] = run_for_outcome(df, oc["name"], oc["freq_var"], oc["label"])
+    return results
 
 
 def main():
     df = pd.read_csv(PATHS.processed_data)
+    _ = CONFIG
     return run(df)
 
 

@@ -1,7 +1,7 @@
 """Subgroup (stratified) analysis and tests for effect modification.
 
-For each subgroup variable (configurable; default `chronic_condition` and
-`internet_access`) we:
+For each outcome (OTC use, herbal use) and each subgroup variable (configurable;
+default ``DTCA_Info`` and ``DTCA_Prescribe``) we:
 
 * Fit the adjusted logistic model *within each stratum* and report the SES and HISB
   odds ratios per stratum (so readers can see whether associations differ by subgroup).
@@ -9,9 +9,9 @@ For each subgroup variable (configurable; default `chronic_condition` and
   with vs. without an SES x subgroup interaction.
 
 Outputs:
-* ``subgroup_or.csv``          - stratum-specific odds ratios.
-* ``subgroup_interaction.csv`` - LR test of SES x subgroup interaction.
-* ``fig_subgroup_forest.png``  - forest plot of the SES (High vs Low) OR by stratum.
+* ``subgroup_or__<outcome>.csv``          - stratum-specific odds ratios.
+* ``subgroup_interaction__<outcome>.csv`` - LR test of SES x subgroup interaction.
+* ``fig_subgroup_forest__<outcome>.png``  - forest plot of the SES (High vs Low) OR.
 """
 
 from __future__ import annotations
@@ -26,48 +26,38 @@ import pandas as pd  # noqa: E402
 import statsmodels.formula.api as smf  # noqa: E402
 from scipy import stats  # noqa: E402
 
+from . import model_spec  # noqa: E402
 from .config import CONFIG, PATHS  # noqa: E402
 
-OUTCOME = "self_medication"
 _TERMS = {
     "C(ses_tertile, Treatment(reference='Low'))[T.Middle]": "SES: Middle (vs Low)",
     "C(ses_tertile, Treatment(reference='Low'))[T.High]": "SES: High (vs Low)",
-    "hisb_score": "Health info-seeking (per point)",
+    "hisb_score": "Health info-seeking (per unit)",
 }
 
 
-def _ses() -> str:
-    ref = CONFIG["modelling"]["ses_reference"]
-    return f"C(ses_tertile, Treatment(reference='{ref}'))"
+def _adjusted_formula(outcome: str) -> str:
+    return f"{outcome} ~ {model_spec.adjusted_rhs()}"
 
 
-def _cov_formula() -> str:
-    covs = CONFIG["modelling"]["covariates"]
-    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
-    return " + ".join(c if c in numeric else f"C({c})" for c in covs)
-
-
-def _adjusted_formula() -> str:
-    return f"{OUTCOME} ~ {_ses()} + hisb_score + {_cov_formula()}"
-
-
-def stratified_or(df: pd.DataFrame, subgroup_var: str) -> pd.DataFrame:
+def stratified_or(df: pd.DataFrame, outcome: str, subgroup_var: str) -> pd.DataFrame:
     """Adjusted SES/HISB odds ratios fitted separately within each subgroup level."""
     rows = []
     for level, g in df.groupby(subgroup_var, observed=True):
-        if g[OUTCOME].nunique() < 2 or len(g) < 30:
+        if g[outcome].nunique() < 2 or len(g) < 30:
             continue
-        res = smf.logit(_adjusted_formula(), data=g).fit(disp=False)
+        res = smf.logit(_adjusted_formula(outcome), data=g).fit(disp=False)
         conf = res.conf_int()
         for term, label in _TERMS.items():
             if term not in res.params.index:
                 continue
             rows.append(
                 {
+                    "outcome": outcome,
                     "subgroup": subgroup_var,
                     "level": str(level),
                     "n": int(len(g)),
-                    "events": int(g[OUTCOME].sum()),
+                    "events": int(g[outcome].sum()),
                     "term": label,
                     "odds_ratio": round(float(np.exp(res.params[term])), 4),
                     "or_ci_low": round(float(np.exp(conf.loc[term, 0])), 4),
@@ -78,19 +68,21 @@ def stratified_or(df: pd.DataFrame, subgroup_var: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def interaction_test(df: pd.DataFrame, subgroup_var: str) -> dict:
+def interaction_test(df: pd.DataFrame, outcome: str, subgroup_var: str) -> dict:
     """LR test for an SES x subgroup interaction (effect modification)."""
+    ses = model_spec.ses_term()
     base = smf.logit(
-        f"{_adjusted_formula()} + C({subgroup_var})", data=df
+        f"{_adjusted_formula(outcome)} + C({subgroup_var})", data=df
     ).fit(disp=False)
     full = smf.logit(
-        f"{OUTCOME} ~ {_ses()}*C({subgroup_var}) + hisb_score + {_cov_formula()}",
+        f"{outcome} ~ {ses}*C({subgroup_var}) + {model_spec.HISB_TERM}",
         data=df,
     ).fit(disp=False)
     stat = 2 * (full.llf - base.llf)
     dof = int(full.df_model - base.df_model)
     p = float(stats.chi2.sf(stat, dof)) if dof > 0 else float("nan")
     return {
+        "outcome": outcome,
         "subgroup": subgroup_var,
         "lr_chi2": round(float(stat), 3),
         "df": dof,
@@ -99,12 +91,12 @@ def interaction_test(df: pd.DataFrame, subgroup_var: str) -> dict:
     }
 
 
-def fig_forest(or_table: pd.DataFrame) -> None:
+def fig_forest(or_table: pd.DataFrame, outcome: str, label: str) -> None:
     """Forest plot of the SES (High vs Low) OR across all subgroup strata."""
     sub = or_table[or_table["term"] == "SES: High (vs Low)"].copy()
     if sub.empty:
         return
-    sub["label"] = sub["subgroup"] + " = " + sub["level"]
+    sub["row"] = sub["subgroup"] + " = " + sub["level"]
     sub = sub.iloc[::-1]
     y = np.arange(len(sub))
     fig, ax = plt.subplots(figsize=(9, max(4, 0.6 * len(sub))))
@@ -118,37 +110,40 @@ def fig_forest(or_table: pd.DataFrame) -> None:
     )
     ax.axvline(1.0, color="grey", linestyle="--", linewidth=1)
     ax.set_yticks(y)
-    ax.set_yticklabels(sub["label"])
+    ax.set_yticklabels(sub["row"])
     ax.set_xlabel("Adjusted OR for SES: High vs Low (95% CI)")
-    ax.set_title("Self-medication: SES effect by subgroup")
-    path = PATHS.figures_dir / "fig_subgroup_forest.png"
+    ax.set_title(f"{label}: SES effect by subgroup")
+    path = PATHS.figures_dir / f"fig_subgroup_forest__{outcome}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[subgroup] wrote {path.name}")
 
 
 def run(df: pd.DataFrame) -> dict:
-    """Run stratified analyses + interaction tests for all configured subgroups."""
+    """Run stratified analyses + interaction tests for all outcomes and subgroups."""
     PATHS.ensure_dirs()
     variables = CONFIG.get("subgroup", {}).get("variables", [])
-    or_tables, inter_rows = [], []
-    for var in variables:
-        if var not in df.columns:
-            print(f"[subgroup] skipping '{var}' (not in data)")
-            continue
-        or_tables.append(stratified_or(df, var))
-        inter_rows.append(interaction_test(df, var))
+    results = {}
+    for oc in model_spec.outcomes():
+        outcome, label = oc["name"], oc["label"]
+        or_tables, inter_rows = [], []
+        for var in variables:
+            if var not in df.columns:
+                print(f"[subgroup] skipping '{var}' (not in data)")
+                continue
+            or_tables.append(stratified_or(df, outcome, var))
+            inter_rows.append(interaction_test(df, outcome, var))
 
-    or_table = pd.concat(or_tables, ignore_index=True) if or_tables else pd.DataFrame()
-    inter = pd.DataFrame(inter_rows)
+        or_table = pd.concat(or_tables, ignore_index=True) if or_tables else pd.DataFrame()
+        inter = pd.DataFrame(inter_rows)
 
-    or_table.to_csv(PATHS.tables_dir / "subgroup_or.csv", index=False)
-    inter.to_csv(PATHS.tables_dir / "subgroup_interaction.csv", index=False)
-    print(f"[subgroup] wrote subgroup_or.csv ({len(or_table)} rows)")
-    print("[subgroup] wrote subgroup_interaction.csv")
-    if not or_table.empty:
-        fig_forest(or_table)
-    return {"or_table": or_table, "interaction": inter}
+        or_table.to_csv(PATHS.tables_dir / f"subgroup_or__{outcome}.csv", index=False)
+        inter.to_csv(PATHS.tables_dir / f"subgroup_interaction__{outcome}.csv", index=False)
+        print(f"[subgroup] wrote subgroup_or__{outcome}.csv ({len(or_table)} rows)")
+        if not or_table.empty:
+            fig_forest(or_table, outcome, label)
+        results[outcome] = {"or_table": or_table, "interaction": inter}
+    return results
 
 
 def main() -> dict:

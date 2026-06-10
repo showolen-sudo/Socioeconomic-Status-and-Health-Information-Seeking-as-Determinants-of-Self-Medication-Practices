@@ -1,13 +1,14 @@
 """Inferential modelling: multivariable logistic regression.
 
-Fits three nested models for self-medication (binary):
+For **each** self-medication outcome (OTC use, herbal use) three nested models are fit:
 
 * ``model_crude_ses``     - outcome ~ SES tertile only.
-* ``model_adjusted``      - outcome ~ SES tertile + HISB + covariates.
+* ``model_adjusted``      - outcome ~ SES tertile + HISB (+ any covariates).
 * ``model_interaction``   - adjusted model + SES x HISB interaction.
 
 Each model's coefficients are exported as odds ratios (OR) with 95% CIs, plus a
-model-comparison table (pseudo-R2, AIC, log-likelihood, LR test vs. crude).
+model-comparison table (pseudo-R2, AIC, log-likelihood, LR test vs. crude). Output
+files are suffixed with the outcome name, e.g. ``model_adjusted__otc_use.csv``.
 """
 
 from __future__ import annotations
@@ -16,14 +17,11 @@ import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 
+from . import model_spec
 from .config import CONFIG, PATHS
 
-OUTCOME = "self_medication"
-
-
-def _ses_formula_base() -> str:
-    ref = CONFIG["modelling"]["ses_reference"]
-    return f"C(ses_tertile, Treatment(reference='{ref}'))"
+# ``model.predict`` and the forest plot need the adjusted model's outcome label.
+PRIMARY_OUTCOME = "otc_use"
 
 
 def fit_logit(df: pd.DataFrame, formula: str):
@@ -63,19 +61,11 @@ def lr_test(restricted, full) -> tuple[float, int, float]:
     return float(stat), dof, float(p)
 
 
-def build_models(df: pd.DataFrame) -> dict:
-    """Fit the crude, adjusted, and interaction models. Returns fitted results."""
-    ses = _ses_formula_base()
-    covariates = CONFIG["modelling"]["covariates"]
-    # Categorical covariates are wrapped in C(); numeric ones are left as-is.
-    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
-    cov_terms = [c if c in numeric else f"C({c})" for c in covariates]
-    cov_str = " + ".join(cov_terms)
-
-    f_crude = f"{OUTCOME} ~ {ses}"
-    f_adjusted = f"{OUTCOME} ~ {ses} + hisb_score + {cov_str}"
-    f_interaction = f"{OUTCOME} ~ {ses} * hisb_score + {cov_str}"
-
+def build_models(df: pd.DataFrame, outcome: str = PRIMARY_OUTCOME) -> dict:
+    """Fit the crude, adjusted, and interaction models for one outcome."""
+    f_crude = f"{outcome} ~ {model_spec.crude_ses_rhs()}"
+    f_adjusted = f"{outcome} ~ {model_spec.adjusted_rhs()}"
+    f_interaction = f"{outcome} ~ {model_spec.interaction_rhs()}"
     return {
         "model_crude_ses": fit_logit(df, f_crude),
         "model_adjusted": fit_logit(df, f_adjusted),
@@ -107,20 +97,29 @@ def comparison_table(models: dict) -> pd.DataFrame:
 
 
 def run(df: pd.DataFrame) -> dict:
-    """Fit models, export OR tables + comparison table, return fitted results."""
+    """Fit models for every outcome, export tables, and return fitted results.
+
+    Returns a nested dict: ``{outcome_name: {model_name: fitted_result}}``.
+    """
     PATHS.ensure_dirs()
-    models = build_models(df)
+    all_models: dict[str, dict] = {}
+    for oc in model_spec.outcomes():
+        outcome = oc["name"]
+        models = build_models(df, outcome)
+        all_models[outcome] = models
 
-    for name, res in models.items():
-        table = odds_ratio_table(res, name)
-        path = PATHS.tables_dir / f"{name}.csv"
-        table.to_csv(path, index=False)
-        print(f"[models] wrote {path.name}")
+        for name, res in models.items():
+            table = odds_ratio_table(res, name)
+            table.insert(0, "outcome", outcome)
+            path = PATHS.tables_dir / f"{name}__{outcome}.csv"
+            table.to_csv(path, index=False)
+            print(f"[models] wrote {path.name}")
 
-    comp = comparison_table(models)
-    comp.to_csv(PATHS.tables_dir / "model_comparison.csv", index=False)
-    print("[models] wrote model_comparison.csv")
-    return models
+        comp = comparison_table(models)
+        comp.insert(0, "outcome", outcome)
+        comp.to_csv(PATHS.tables_dir / f"model_comparison__{outcome}.csv", index=False)
+        print(f"[models] wrote model_comparison__{outcome}.csv")
+    return all_models
 
 
 def main() -> dict:
@@ -128,6 +127,7 @@ def main() -> dict:
     df["ses_tertile"] = pd.Categorical(
         df["ses_tertile"], categories=["Low", "Middle", "High"], ordered=True
     )
+    _ = CONFIG
     return run(df)
 
 

@@ -1,25 +1,24 @@
 """Mediation analysis: SES -> health information-seeking -> self-medication.
 
 Tests whether health information-seeking behaviour (HISB) *mediates* the effect of
-socioeconomic status (SES) on self-medication, using the standard product-of-coefficients
-approach with a nonparametric bootstrap for inference (Preacher & Hayes).
+socioeconomic status (SES) on each self-medication outcome (OTC use, herbal use), using
+the product-of-coefficients approach with a nonparametric bootstrap for inference
+(Preacher & Hayes).
 
-Model setup (X = SES composite, M = HISB score, Y = self-medication):
+Model setup (X = SES composite, M = HISB score, Y = outcome):
 
-* Mediator model (OLS):      M ~ a*X + covariates                 -> path a
-* Outcome model (logistic):  Y ~ c'*X + b*M + covariates          -> paths c' (direct), b
+* Mediator model (OLS):      M ~ a*X (+ covariates)            -> path a
+* Outcome model (logistic):  Y ~ c'*X + b*M (+ covariates)     -> paths c' (direct), b
 * Indirect (mediated) effect = a * b   (log-odds scale)
 * Total effect (approx.)      = c' + a*b
 * Proportion mediated         = (a*b) / (c' + a*b)
 
-Note: because Y is binary (logistic), effects involving Y are on the log-odds scale and
-the total = direct + indirect decomposition is approximate. When the direct and indirect
-effects have opposite signs ("competitive"/inconsistent mediation), the proportion
-mediated is not straightforwardly interpretable and is reported for completeness only.
+Because Y is binary (logistic), effects involving Y are on the log-odds scale and the
+total = direct + indirect decomposition is approximate. When direct and indirect effects
+have opposite signs ("competitive" mediation), the proportion mediated is reported for
+completeness only.
 
-Outputs:
-* ``mediation_results.csv``   - point estimates with bootstrap 95% CIs.
-* ``fig_mediation_effects.png`` - direct vs. indirect vs. total effect with CIs.
+Outputs are suffixed with the outcome name, e.g. ``mediation_results__otc_use.csv``.
 """
 
 from __future__ import annotations
@@ -33,37 +32,38 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import statsmodels.formula.api as smf  # noqa: E402
 
+from . import model_spec  # noqa: E402
 from .config import CONFIG, PATHS  # noqa: E402
 
 X_VAR = "ses_score"
 M_VAR = "hisb_score"
-Y_VAR = "self_medication"
 
 _EFFECT_LABELS = {
     "a": "a: SES -> HISB",
-    "b": "b: HISB -> self-med (logit)",
-    "c_prime": "c': direct (SES -> self-med)",
+    "b": "b: HISB -> outcome (logit)",
+    "c_prime": "c': direct (SES -> outcome)",
     "indirect": "a*b: indirect (via HISB)",
     "total": "c: total effect",
     "prop_mediated": "proportion mediated",
 }
 
 
-def _cov_formula() -> str:
-    covs = CONFIG["modelling"]["covariates"]
-    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
-    return " + ".join(c if c in numeric else f"C({c})" for c in covs)
+def _cov_suffix() -> str:
+    terms = model_spec.covariate_terms()
+    return (" + " + " + ".join(terms)) if terms else ""
 
 
-def fit_once(df: pd.DataFrame) -> dict[str, float]:
+def fit_once(df: pd.DataFrame, outcome: str) -> dict[str, float]:
     """Fit the mediator and outcome models once; return path/effect estimates."""
-    cov = _cov_formula()
-    mediator = smf.ols(f"{M_VAR} ~ {X_VAR} + {cov}", data=df).fit()
-    outcome = smf.logit(f"{Y_VAR} ~ {X_VAR} + {M_VAR} + {cov}", data=df).fit(disp=False)
+    cov = _cov_suffix()
+    mediator = smf.ols(f"{M_VAR} ~ {X_VAR}{cov}", data=df).fit()
+    outcome_model = smf.logit(
+        f"{outcome} ~ {X_VAR} + {M_VAR}{cov}", data=df
+    ).fit(disp=False)
 
     a = float(mediator.params[X_VAR])
-    b = float(outcome.params[M_VAR])
-    c_prime = float(outcome.params[X_VAR])
+    b = float(outcome_model.params[M_VAR])
+    c_prime = float(outcome_model.params[X_VAR])
     indirect = a * b
     total = c_prime + indirect
     prop = indirect / total if total != 0 else np.nan
@@ -77,7 +77,7 @@ def fit_once(df: pd.DataFrame) -> dict[str, float]:
     }
 
 
-def bootstrap(df: pd.DataFrame, n_boot: int, seed: int) -> dict[str, np.ndarray]:
+def bootstrap(df: pd.DataFrame, outcome: str, n_boot: int, seed: int) -> dict[str, np.ndarray]:
     """Nonparametric (case-resampling) bootstrap of the mediation estimates."""
     rng = np.random.default_rng(seed)
     n = len(df)
@@ -86,7 +86,7 @@ def bootstrap(df: pd.DataFrame, n_boot: int, seed: int) -> dict[str, np.ndarray]
     for _ in range(n_boot):
         sample = df.iloc[rng.integers(0, n, n)]
         try:
-            est = fit_once(sample)
+            est = fit_once(sample, outcome)
         except Exception:  # pragma: no cover - rare singular bootstrap draw
             continue
         for k in keys:
@@ -111,7 +111,7 @@ def results_table(point: dict[str, float], boot: dict[str, np.ndarray]) -> pd.Da
     return pd.DataFrame(rows)
 
 
-def fig_effects(point: dict[str, float], boot: dict[str, np.ndarray]) -> None:
+def fig_effects(point: dict[str, float], boot: dict[str, np.ndarray], outcome: str, label: str) -> None:
     keys = ["c_prime", "indirect", "total"]
     labels = ["Direct (c')", "Indirect (a*b)", "Total (c)"]
     est = [point[k] for k in keys]
@@ -124,34 +124,38 @@ def fig_effects(point: dict[str, float], boot: dict[str, np.ndarray]) -> None:
     colors = ["#2b6cb0", "#dd6b20", "#2f855a"]
     ax.bar(labels, est, yerr=[err_low, err_high], capsize=6, color=colors, alpha=0.85)
     ax.axhline(0, color="grey", linewidth=1)
-    ax.set_ylabel("Effect on self-medication (log-odds)")
-    ax.set_title("Decomposition of the SES effect (mediated by HISB)")
+    ax.set_ylabel(f"Effect on {label} (log-odds)")
+    ax.set_title(f"Decomposition of the SES effect on {label} (mediated by HISB)")
     for i, e in enumerate(est):
         ax.annotate(f"{e:.3f}", (i, e), ha="center",
                     va="bottom" if e >= 0 else "top", fontsize=11)
-    path = PATHS.figures_dir / "fig_mediation_effects.png"
+    path = PATHS.figures_dir / f"fig_mediation_effects__{outcome}.png"
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[mediation] wrote {path.name}")
 
 
-def run(df: pd.DataFrame, n_boot: int | None = None, seed: int | None = None) -> pd.DataFrame:
-    """Run the full mediation analysis and persist outputs."""
+def run(df: pd.DataFrame, n_boot: int | None = None, seed: int | None = None) -> dict:
+    """Run the full mediation analysis for each outcome and persist outputs."""
     PATHS.ensure_dirs()
     n_boot = int(n_boot if n_boot is not None else CONFIG.get("mediation", {}).get("n_boot", 1000))
     seed = int(seed if seed is not None else CONFIG["seed"])
 
-    point = fit_once(df)
-    boot = bootstrap(df, n_boot=n_boot, seed=seed)
-    table = results_table(point, boot)
+    tables = {}
+    for oc in model_spec.outcomes():
+        outcome, label = oc["name"], oc["label"]
+        point = fit_once(df, outcome)
+        boot = bootstrap(df, outcome, n_boot=n_boot, seed=seed)
+        table = results_table(point, boot)
+        table.insert(0, "outcome", outcome)
+        table.to_csv(PATHS.tables_dir / f"mediation_results__{outcome}.csv", index=False)
+        print(f"[mediation] wrote mediation_results__{outcome}.csv (bootstrap B={n_boot})")
+        fig_effects(point, boot, outcome, label)
+        tables[outcome] = table
+    return tables
 
-    table.to_csv(PATHS.tables_dir / "mediation_results.csv", index=False)
-    print(f"[mediation] wrote mediation_results.csv (bootstrap B={n_boot})")
-    fig_effects(point, boot)
-    return table
 
-
-def main() -> pd.DataFrame:
+def main() -> dict:
     df = pd.read_csv(PATHS.processed_data)
     return run(df)
 
