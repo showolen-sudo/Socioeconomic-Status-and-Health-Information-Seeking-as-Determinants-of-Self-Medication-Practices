@@ -4,16 +4,16 @@
 
 Cross-sectional, questionnaire-based survey of adults (? 18 years). The analytic
 goal is to quantify the association between **socioeconomic status (SES)** and
-**health informationñseeking behaviour (HISB)** with **self-medication practices**.
+**health informationùseeking behaviour (HISB)** with **self-medication practices**.
 
 ## Measures
 
-### Outcome ó self-medication
+### Outcome ù self-medication
 Use of medicines (prescription or over-the-counter) without professional consultation
 in the past 6 months. Captured as a binary indicator and, secondarily, as an ordinal
 frequency (`Never`/`Rarely`/`Sometimes`/`Often`).
 
-### Exposure 1 ó Socioeconomic status (SES)
+### Exposure 1 ù Socioeconomic status (SES)
 A composite index built from three standardized components:
 
 1. Education (ordinal: None ? Tertiary)
@@ -23,8 +23,8 @@ A composite index built from three standardized components:
 Each component is converted to a z-score; the SES score is their mean. The score is
 divided into tertiles (**Low / Middle / High**) for interpretable group comparisons.
 
-### Exposure 2 ó Health informationñseeking behaviour (HISB)
-A 0ñ20 summated scale capturing how actively a respondent seeks health information
+### Exposure 2 ù Health informationùseeking behaviour (HISB)
+A 0ù20 summated scale capturing how actively a respondent seeks health information
 (e.g., from clinicians, internet, pharmacists, media). Analysed continuously and as a
 median split (`hisb_high`).
 
@@ -43,8 +43,8 @@ multivariable models, entered as a numeric (per-point) term. Demographic covaria
    self-medication; t-test/ANOVA for continuous predictors across the outcome.
 3. **Multivariable logistic regression.** Self-medication regressed on SES tertile and
    HISB, adjusting for covariates. Effects reported as adjusted odds ratios (aOR) with
-   95% CIs. Model fit assessed with pseudo-R≤, AIC, and the likelihood-ratio test.
-4. **Interaction.** SES ◊ HISB interaction term tested as a sensitivity analysis.
+   95% CIs. Model fit assessed with pseudo-Rù, AIC, and the likelihood-ratio test.
+4. **Interaction.** SES ù HISB interaction term tested as a sensitivity analysis.
 5. **Ordinal model (secondary outcome).** Self-medication *frequency*
    (Never < Rarely < Sometimes < Often) modelled with a **proportional-odds
    (cumulative-logit) ordinal logistic regression** using the same predictor set.
@@ -57,6 +57,12 @@ multivariable models, entered as a numeric (per-point) term. Demographic covaria
    slopes are equal across cutpoints, both overall (omnibus) and per predictor. A small
    p-value (< 0.05) flags a violation, suggesting a partial-proportional-odds or
    multinomial alternative for that term. Output: `model_ordinal_brant.csv`.
+   When the assumption is violated, a **partial proportional-odds (generalized ordered
+   logit)** model is fitted by maximum likelihood: terms that satisfy the assumption keep
+   a single shared coefficient, while Brant-flagged terms are freed to take
+   cutpoint-specific coefficients (reported as odds ratios per cumulative cutpoint
+   P(Y >= category)). Outputs: `model_partial_po.csv`, `model_partial_po_fit.csv`, and
+   `fig_partial_po_or.png`.
 7. **Mediation analysis (SES -> HISB -> self-medication).** We test whether health
    information-seeking mediates the SES-self-medication association using the
    product-of-coefficients approach:

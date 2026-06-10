@@ -74,7 +74,7 @@ def main(argv=None) -> None:
     models = statistical_models.run(analysis)
 
     # 5. Ordinal model on self-medication frequency (+ Brant test)
-    print("[5/7] Fitting ordinal (proportional-odds) model + Brant test ...")
+    print("[5/7] Fitting ordinal model + Brant test + partial proportional odds ...")
     ordinal_models.run(analysis)
 
     # 6. Mediation: SES -> HISB -> self-medication

@@ -27,7 +27,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import patsy  # noqa: E402
 import statsmodels.api as sm  # noqa: E402
-from scipy import stats  # noqa: E402
+from scipy import optimize, stats  # noqa: E402
+from scipy.special import expit  # noqa: E402
 from statsmodels.miscmodels.ordinal_model import OrderedModel  # noqa: E402
 
 from .config import CONFIG, PATHS  # noqa: E402
@@ -235,6 +236,7 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
     rows = [
         {
             "variable": "Omnibus",
+            "raw_term": "",
             "X2": round(stat, 3),
             "df": dof,
             "p_value": round(float(stats.chi2.sf(stat, dof)), 4),
@@ -252,6 +254,7 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             {
                 "variable": _PRETTY_TERMS.get(name, name),
+                "raw_term": name,
                 "X2": round(stat, 3),
                 "df": dof,
                 "p_value": round(float(stats.chi2.sf(stat, dof)), 4),
@@ -259,6 +262,164 @@ def brant_test(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _threshold_labels() -> list[str]:
+    """Human-readable labels for the J cumulative cutpoints P(Y >= category)."""
+    return [f">= {FREQ_ORDER[t]}" for t in range(1, len(FREQ_ORDER))]
+
+
+def fit_partial_po(df: pd.DataFrame, nonprop_terms=None, alpha: float = 0.05) -> dict:
+    """Fit a partial proportional-odds (generalized ordered logit) model by MLE.
+
+    Terms that satisfy the proportional-odds assumption share one coefficient across all
+    cutpoints; terms flagged by the Brant test (p < ``alpha``) are *freed* to take
+    cutpoint-specific coefficients. When ``nonprop_terms`` is None the violating terms
+    are selected automatically from :func:`brant_test`.
+
+    Returns a dict with the fitted parameters, an odds-ratio table, a fit-statistics
+    table, and the list of non-proportional terms.
+    """
+    data = prepare(df)
+    _, X, _ = build_design(data)
+    cols = list(X.columns)
+    Xmat = X.to_numpy()
+    y = data[OUTCOME].cat.codes.to_numpy()
+    n = len(y)
+    K = len(FREQ_ORDER)
+    J = K - 1
+
+    if nonprop_terms is None:
+        bt = brant_test(df)
+        mask = (bt["raw_term"] != "") & (bt["p_value"] < alpha)
+        nonprop_terms = list(bt.loc[mask, "raw_term"])
+    nonprop_terms = [c for c in nonprop_terms if c in cols]
+
+    prop_idx = [i for i, c in enumerate(cols) if c not in nonprop_terms]
+    nonprop_idx = [i for i, c in enumerate(cols) if c in nonprop_terms]
+    n_prop, n_non = len(prop_idx), len(nonprop_idx)
+
+    x_prop = Xmat[:, prop_idx] if n_prop else np.zeros((n, 0))
+    x_non = Xmat[:, nonprop_idx] if n_non else np.zeros((n, 0))
+
+    def unpack(theta: np.ndarray):
+        a = theta[:J]
+        b = theta[J:J + n_prop]
+        g = theta[J + n_prop:].reshape(n_non, J) if n_non else np.zeros((0, J))
+        return a, b, g
+
+    def cum_probs(theta: np.ndarray) -> np.ndarray:
+        a, b, g = unpack(theta)
+        base = x_prop @ b if n_prop else np.zeros(n)
+        cum = np.empty((n, J))
+        for t in range(J):
+            lp = a[t] + base + (x_non @ g[:, t] if n_non else 0.0)
+            cum[:, t] = expit(lp)
+        return cum
+
+    def neg_loglik(theta: np.ndarray) -> float:
+        cum = cum_probs(theta)
+        prob = np.empty((n, K))
+        prob[:, 0] = 1 - cum[:, 0]
+        for c in range(1, K - 1):
+            prob[:, c] = cum[:, c - 1] - cum[:, c]
+        prob[:, K - 1] = cum[:, K - 2]
+        pi = np.clip(prob[np.arange(n), y], 1e-9, 1.0)
+        return -np.sum(np.log(pi))
+
+    # Initialise thresholds from the marginal cumulative log-odds; slopes at 0.
+    theta0 = np.zeros(J + n_prop + n_non * J)
+    for t in range(J):
+        frac = np.clip((y >= (t + 1)).mean(), 1e-3, 1 - 1e-3)
+        theta0[t] = np.log(frac / (1 - frac))
+
+    res = optimize.minimize(neg_loglik, theta0, method="BFGS")
+    theta = res.x
+    cov = np.atleast_2d(res.hess_inv)
+    se = np.sqrt(np.clip(np.diag(cov), 0, np.inf))
+
+    labels = _threshold_labels()
+    rows = []
+    # Proportional terms: one shared coefficient.
+    for j, idx in enumerate(prop_idx):
+        pos = J + j
+        coef, s = theta[pos], se[pos]
+        rows.append(_or_row(cols[idx], "proportional (all cutpoints)", coef, s))
+    # Non-proportional terms: cutpoint-specific coefficients.
+    for m, idx in enumerate(nonprop_idx):
+        for t in range(J):
+            pos = J + n_prop + m * J + t
+            coef, s = theta[pos], se[pos]
+            rows.append(_or_row(cols[idx], labels[t], coef, s))
+    or_table = pd.DataFrame(rows)
+
+    n_params = theta.size
+    llf = -res.fun
+    aic = 2 * n_params - 2 * llf
+    bic = np.log(n) * n_params - 2 * llf
+    fit_stats = pd.DataFrame(
+        [
+            {
+                "n": n,
+                "n_params": n_params,
+                "log_likelihood": round(llf, 3),
+                "aic": round(aic, 2),
+                "bic": round(bic, 2),
+                "nonproportional_terms": ", ".join(
+                    _PRETTY_TERMS.get(c, c) for c in nonprop_terms
+                )
+                or "(none)",
+                "converged": bool(res.success),
+            }
+        ]
+    )
+    return {
+        "or_table": or_table,
+        "fit": fit_stats,
+        "nonprop_terms": nonprop_terms,
+        "loglik": llf,
+    }
+
+
+def _or_row(raw_term: str, threshold: str, coef: float, se: float) -> dict:
+    z = coef / se if se > 0 else np.nan
+    p = float(2 * stats.norm.sf(abs(z))) if np.isfinite(z) else np.nan
+    return {
+        "term": _PRETTY_TERMS.get(raw_term, raw_term),
+        "threshold": threshold,
+        "coef_logit": round(float(coef), 4),
+        "odds_ratio": round(float(np.exp(coef)), 4),
+        "or_ci_low": round(float(np.exp(coef - 1.96 * se)), 4),
+        "or_ci_high": round(float(np.exp(coef + 1.96 * se)), 4),
+        "p_value": round(p, 4) if np.isfinite(p) else np.nan,
+    }
+
+
+def fig_partial_po(or_table: pd.DataFrame, nonprop_terms: list) -> None:
+    """Plot cutpoint-specific odds ratios for the non-proportional terms."""
+    if not nonprop_terms:
+        return
+    pretty = [_PRETTY_TERMS.get(c, c) for c in nonprop_terms]
+    sub = or_table[or_table["term"].isin(pretty) & (or_table["threshold"] != "proportional (all cutpoints)")]
+    if sub.empty:
+        return
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    thresholds = list(dict.fromkeys(sub["threshold"]))
+    x = np.arange(len(thresholds))
+    for term in pretty:
+        t = sub[sub["term"] == term]
+        ax.plot(x, t["odds_ratio"], marker="o", label=term)
+    ax.axhline(1.0, color="grey", linestyle="--", linewidth=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels(thresholds)
+    ax.set_xlabel("Cumulative cutpoint")
+    ax.set_ylabel("Odds ratio")
+    ax.set_title("Partial proportional odds: cutpoint-specific effects")
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    path = PATHS.figures_dir / "fig_partial_po_or.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[ordinal] wrote {path.name}")
 
 
 def run(df: pd.DataFrame):
@@ -276,8 +437,19 @@ def run(df: pd.DataFrame):
     fit_table(result).to_csv(PATHS.tables_dir / "model_ordinal_fit.csv", index=False)
     print("[ordinal] wrote model_ordinal_fit.csv")
 
-    brant_test(df).to_csv(PATHS.tables_dir / "model_ordinal_brant.csv", index=False)
+    brant = brant_test(df)
+    brant.to_csv(PATHS.tables_dir / "model_ordinal_brant.csv", index=False)
     print("[ordinal] wrote model_ordinal_brant.csv (proportional-odds assumption)")
+
+    # Partial proportional odds: free the Brant-flagged terms across cutpoints.
+    ppo = fit_partial_po(df)
+    ppo["or_table"].to_csv(PATHS.tables_dir / "model_partial_po.csv", index=False)
+    ppo["fit"].to_csv(PATHS.tables_dir / "model_partial_po_fit.csv", index=False)
+    print(
+        "[ordinal] wrote model_partial_po.csv "
+        f"(non-proportional terms: {ppo['fit'].iloc[0]['nonproportional_terms']})"
+    )
+    fig_partial_po(ppo["or_table"], ppo["nonprop_terms"])
 
     pred = predicted_probs_by_ses(result, data)
     pred.round(4).to_csv(PATHS.tables_dir / "ordinal_pred_by_ses.csv", index=False)

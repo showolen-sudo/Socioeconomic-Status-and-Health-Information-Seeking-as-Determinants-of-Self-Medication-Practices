@@ -123,3 +123,21 @@ def test_mediation_bootstrap_table(analysis: pd.DataFrame) -> None:
     table = mediation_analysis.results_table(point, boot)
     assert {"effect", "estimate", "ci_low", "ci_high"} <= set(table.columns)
     assert (table["ci_low"] <= table["ci_high"]).all()
+
+
+def test_partial_po_frees_flagged_term(analysis: pd.DataFrame) -> None:
+    # Force a known non-proportional term so the test is deterministic and fast.
+    ppo = ordinal_models.fit_partial_po(analysis, nonprop_terms=["self_treat_score"])
+    table = ppo["or_table"]
+    assert {"term", "threshold", "odds_ratio", "p_value"} <= set(table.columns)
+    # The freed term must have one row per cumulative cutpoint (K-1 = 3).
+    freed = table[table["term"] == "Self-treat agreement (per point)"]
+    assert len(freed) == len(ordinal_models.FREQ_ORDER) - 1
+    assert (table["odds_ratio"] > 0).all()
+
+
+def test_partial_po_improves_fit(analysis: pd.DataFrame) -> None:
+    # Freeing a term cannot reduce the maximized log-likelihood vs. proportional odds.
+    prop = ordinal_models.fit(ordinal_models.prepare(analysis))
+    ppo = ordinal_models.fit_partial_po(analysis, nonprop_terms=["self_treat_score"])
+    assert ppo["loglik"] >= prop.llf - 1e-3

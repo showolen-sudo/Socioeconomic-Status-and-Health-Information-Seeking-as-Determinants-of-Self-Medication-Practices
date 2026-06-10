@@ -140,7 +140,9 @@ The pipeline is deterministic: the random seed is fixed in `config/config.yaml`
 - **Secondary model:** **proportional-odds ordinal logistic regression** on
   self-medication *frequency* (Never < Rarely < Sometimes < Often); reports
   proportional-odds ratios and predicted category probabilities by SES. The
-  parallel-lines assumption is checked with a **Brant test**.
+  parallel-lines assumption is checked with a **Brant test**, and a
+  **partial proportional-odds (generalized ordered logit)** model relaxes the
+  constraint for any Brant-flagged terms (cutpoint-specific odds ratios).
 - **Mediation:** SES -> HISB -> self-medication via the product-of-coefficients method
   with a **nonparametric bootstrap** (direct, indirect, and total effects).
 - **Sensitivity:** SES x HISB interaction term.
@@ -166,8 +168,9 @@ pytest -q
 
 - [x] Ordinal logistic regression for self-medication *frequency* (`ordinal_models.py`)
 - [x] Brant test of the proportional-odds assumption (`ordinal_models.py`)
+- [x] Partial proportional-odds (generalized ordered logit) model (`ordinal_models.py`)
 - [x] Mediation analysis (SES -> HISB -> self-medication) (`mediation_analysis.py`)
-- [ ] Subgroup analysis by urban/rural residence
+- [ ] Subgroup analysis by residence
 - [ ] Multiple imputation for missing data
 - [ ] Calibration / discrimination metrics for the predictive model
 
