@@ -4,6 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Reproducible](https://img.shields.io/badge/reproducible-pipeline-success.svg)](#reproducing-the-analysis)
 
+**Authors:** Nurudeen Showole, MD¹, Suhila Sawesi, PhD¹
+
+¹ Affiliation (institution to be added)
+
 A reproducible, end-to-end research analysis pipeline investigating how **socioeconomic
 status (SES)** and **health information-seeking behaviour (HISB)** predict
 **self-medication practices** in an adult population.

@@ -6,9 +6,14 @@ abstract: >-
   information-seeking behaviour as determinants of self-medication practices.
 type: software
 authors:
-  - family-names: "showolen-sudo"
-    name-particle: ""
-    given-names: ""
+  - family-names: "Showole"
+    given-names: "Nurudeen"
+    name-suffix: "MD"
+    affiliation: "1"
+  - family-names: "Sawesi"
+    given-names: "Suhila"
+    name-suffix: "PhD"
+    affiliation: "1"
 keywords:
   - self-medication
   - socioeconomic status
