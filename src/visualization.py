@@ -73,11 +73,8 @@ def _pretty_term(term: str) -> str:
     mapping = {
         "C(ses_tertile, Treatment(reference='Low'))[T.Middle]": "SES: Middle (vs Low)",
         "C(ses_tertile, Treatment(reference='Low'))[T.High]": "SES: High (vs Low)",
-        "C(sex)[T.Male]": "Sex: Male (vs Female)",
-        "C(residence)[T.Urban]": "Residence: Urban (vs Rural)",
-        "C(health_insurance)[T.Yes]": "Health insurance: Yes (vs No)",
+        "self_treat_score": "Self-treat agreement (per point)",
         "hisb_score": "Health info-seeking (per point)",
-        "age": "Age (per year)",
     }
     return mapping.get(term, term)
 
@@ -108,7 +105,7 @@ def fig_forest_odds_ratios(adjusted_model) -> None:
 
 
 def fig_correlation_heatmap(df: pd.DataFrame) -> None:
-    cols = ["age", "income_monthly", "hisb_score", "ses_score", OUTCOME]
+    cols = ["income_monthly", "hisb_score", "ses_score", OUTCOME]
     corr = df[cols].corr()
     fig, ax = plt.subplots(figsize=(7, 6))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)

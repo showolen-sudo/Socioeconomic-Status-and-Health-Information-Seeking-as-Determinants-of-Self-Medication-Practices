@@ -67,10 +67,9 @@ def build_models(df: pd.DataFrame) -> dict:
     """Fit the crude, adjusted, and interaction models. Returns fitted results."""
     ses = _ses_formula_base()
     covariates = CONFIG["modelling"]["covariates"]
-    cov_terms = []
-    for c in covariates:
-        # Wrap obvious categoricals in C(); leave numeric age as-is.
-        cov_terms.append(c if c == "age" else f"C({c})")
+    # Categorical covariates are wrapped in C(); numeric ones are left as-is.
+    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
+    cov_terms = [c if c in numeric else f"C({c})" for c in covariates]
     cov_str = " + ".join(cov_terms)
 
     f_crude = f"{OUTCOME} ~ {ses}"

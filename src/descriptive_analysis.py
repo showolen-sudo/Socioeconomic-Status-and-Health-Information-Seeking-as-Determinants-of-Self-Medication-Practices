@@ -14,17 +14,14 @@ from scipy import stats
 
 from .config import PATHS
 
-CONTINUOUS_VARS = ["age", "income_monthly", "hisb_score", "ses_score"]
+CONTINUOUS_VARS = ["income_monthly", "hisb_score", "ses_score"]
 CATEGORICAL_VARS = [
-    "sex",
-    "residence",
     "education",
     "occupation",
-    "health_insurance",
     "chronic_condition",
     "internet_access",
+    "self_treat",
     "ses_tertile",
-    "age_group",
 ]
 OUTCOME = "self_medication"
 

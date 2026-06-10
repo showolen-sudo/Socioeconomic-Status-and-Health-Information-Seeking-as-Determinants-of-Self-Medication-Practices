@@ -11,19 +11,12 @@ paths:
 
 synthetic:
   n_respondents: 1500
-  # Approximate marginal rates used by the generator (kept realistic, not real data).
-  urban_share: 0.62
-  female_share: 0.51
-  insured_share: 0.45
 
 modelling:
   outcome: self_medication            # binary 0/1
   ses_reference: "Low"                # reference category for SES tertile
   covariates:
-    - age
-    - sex
-    - residence
-    - health_insurance
+    - self_treat_score                # Self_Treat Likert item (1-5), adjusted as numeric
   alpha: 0.05
 
 mediation:

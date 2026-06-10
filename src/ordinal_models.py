@@ -38,11 +38,8 @@ OUTCOME = "self_medication_freq"
 _PRETTY_TERMS = {
     "C(ses_tertile, Treatment(reference='Low'))[T.Middle]": "SES: Middle (vs Low)",
     "C(ses_tertile, Treatment(reference='Low'))[T.High]": "SES: High (vs Low)",
-    "C(sex)[T.Male]": "Sex: Male (vs Female)",
-    "C(residence)[T.Urban]": "Residence: Urban (vs Rural)",
-    "C(health_insurance)[T.Yes]": "Health insurance: Yes (vs No)",
+    "self_treat_score": "Self-treat agreement (per point)",
     "hisb_score": "Health info-seeking (per point)",
-    "age": "Age (per year)",
 }
 
 
@@ -51,7 +48,8 @@ def _design_formula() -> str:
     ref = CONFIG["modelling"]["ses_reference"]
     ses = f"C(ses_tertile, Treatment(reference='{ref}'))"
     covariates = CONFIG["modelling"]["covariates"]
-    cov_terms = [c if c == "age" else f"C({c})" for c in covariates]
+    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
+    cov_terms = [c if c in numeric else f"C({c})" for c in covariates]
     return " + ".join([ses, "hisb_score", *cov_terms])
 
 
@@ -138,10 +136,7 @@ def _reference_row(df: pd.DataFrame) -> dict:
     """Covariate values held fixed in the prediction grid (means / reference levels)."""
     return {
         "hisb_score": df["hisb_score"].mean(),
-        "age": df["age"].mean(),
-        "sex": "Female",
-        "residence": "Rural",
-        "health_insurance": "No",
+        "self_treat_score": df["self_treat_score"].mean(),
     }
 
 

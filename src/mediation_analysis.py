@@ -51,7 +51,8 @@ _EFFECT_LABELS = {
 
 def _cov_formula() -> str:
     covs = CONFIG["modelling"]["covariates"]
-    return " + ".join(c if c == "age" else f"C({c})" for c in covs)
+    numeric = {"age", "hisb_score", "ses_score", "income_monthly", "self_treat_score"}
+    return " + ".join(c if c in numeric else f"C({c})" for c in covs)
 
 
 def fit_once(df: pd.DataFrame) -> dict[str, float]:

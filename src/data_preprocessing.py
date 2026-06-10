@@ -12,18 +12,22 @@ from .config import CONFIG, PATHS
 
 EDUCATION_ORDER = {"None": 0, "Primary": 1, "Secondary": 2, "Tertiary": 3}
 OCCUPATION_ORDER = {"Unemployed": 0, "Manual": 1, "Skilled": 2, "Professional": 3}
+SELF_TREAT_ORDER = {
+    "Strongly disagree": 1,
+    "Disagree": 2,
+    "Neutral": 3,
+    "Agree": 4,
+    "Strongly agree": 5,
+}
 REQUIRED_COLUMNS = {
     "respondent_id",
-    "age",
-    "sex",
-    "residence",
     "education",
     "income_monthly",
     "occupation",
-    "health_insurance",
     "chronic_condition",
     "hisb_score",
     "internet_access",
+    "self_treat",
     "self_medication",
 }
 
@@ -45,13 +49,6 @@ def load_raw(path=None) -> pd.DataFrame:
     return df
 
 
-def add_age_group(df: pd.DataFrame) -> pd.DataFrame:
-    bins = [17, 29, 44, 59, 200]
-    labels = ["18-29", "30-44", "45-59", "60+"]
-    df["age_group"] = pd.cut(df["age"], bins=bins, labels=labels)
-    return df
-
-
 def build_ses_index(df: pd.DataFrame) -> pd.DataFrame:
     """Create the standardized SES composite and its tertiles."""
     df["education_code"] = df["education"].map(EDUCATION_ORDER)
@@ -63,9 +60,7 @@ def build_ses_index(df: pd.DataFrame) -> pd.DataFrame:
 
     df["ses_score"] = df[["income_z", "education_z", "occupation_z"]].mean(axis=1)
 
-    df["ses_tertile"] = pd.qcut(
-        df["ses_score"], q=3, labels=["Low", "Middle", "High"]
-    )
+    df["ses_tertile"] = pd.qcut(df["ses_score"], q=3, labels=["Low", "Middle", "High"])
     df["ses_tertile"] = pd.Categorical(
         df["ses_tertile"], categories=["Low", "Middle", "High"], ordered=True
     )
@@ -78,17 +73,27 @@ def add_hisb_split(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_self_treat_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Encode the Self_Treat Likert item to a 1-5 numeric score."""
+    df["self_treat"] = df["self_treat"].astype(str).str.strip()
+    df["self_treat_score"] = df["self_treat"].map(SELF_TREAT_ORDER)
+    if df["self_treat_score"].isna().any():
+        bad = sorted(df.loc[df["self_treat_score"].isna(), "self_treat"].unique())
+        raise ValueError(f"Unrecognized self_treat responses: {bad}")
+    df["self_treat_score"] = df["self_treat_score"].astype(int)
+    return df
+
+
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     """Apply the full preprocessing chain and return analysis-ready data."""
     df = df.copy()
     df = df.drop_duplicates(subset="respondent_id")
-    df = df[(df["age"] >= 18) & (df["age"] <= 110)]
     df = df[df["income_monthly"] >= 0]
     df["self_medication"] = df["self_medication"].astype(int)
 
-    df = add_age_group(df)
     df = build_ses_index(df)
     df = add_hisb_split(df)
+    df = add_self_treat_score(df)
     return df.reset_index(drop=True)
 
 

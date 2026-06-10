@@ -19,8 +19,8 @@ status (SES)** and **health information-seeking behaviour (HISB)** predict
 
 1. **RQ1.** Is socioeconomic status associated with the likelihood of self-medication?
 2. **RQ2.** Is health information-seeking behaviour associated with self-medication?
-3. **RQ3.** Do SES and HISB remain significant predictors after adjusting for
-   demographic covariates (age, sex, residence, health insurance)?
+3. **RQ3.** Do SES and HISB remain significant predictors after adjusting for the
+   Self_Treat attitude (`self_treat_score`)?
 4. **RQ4.** Is there an interaction between SES and HISB on self-medication?
 5. **RQ5.** Do SES and HISB predict the *frequency* of self-medication (ordinal)?
 

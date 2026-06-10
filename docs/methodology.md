@@ -4,16 +4,16 @@
 
 Cross-sectional, questionnaire-based survey of adults (? 18 years). The analytic
 goal is to quantify the association between **socioeconomic status (SES)** and
-**health informationùseeking behaviour (HISB)** with **self-medication practices**.
+**health informationñseeking behaviour (HISB)** with **self-medication practices**.
 
 ## Measures
 
-### Outcome ù self-medication
+### Outcome ó self-medication
 Use of medicines (prescription or over-the-counter) without professional consultation
 in the past 6 months. Captured as a binary indicator and, secondarily, as an ordinal
 frequency (`Never`/`Rarely`/`Sometimes`/`Often`).
 
-### Exposure 1 ù Socioeconomic status (SES)
+### Exposure 1 ó Socioeconomic status (SES)
 A composite index built from three standardized components:
 
 1. Education (ordinal: None ? Tertiary)
@@ -23,14 +23,17 @@ A composite index built from three standardized components:
 Each component is converted to a z-score; the SES score is their mean. The score is
 divided into tertiles (**Low / Middle / High**) for interpretable group comparisons.
 
-### Exposure 2 ù Health informationùseeking behaviour (HISB)
-A 0ù20 summated scale capturing how actively a respondent seeks health information
+### Exposure 2 ó Health informationñseeking behaviour (HISB)
+A 0ñ20 summated scale capturing how actively a respondent seeks health information
 (e.g., from clinicians, internet, pharmacists, media). Analysed continuously and as a
 median split (`hisb_high`).
 
-### Covariates
-Age, sex, residence (urban/rural), and health insurance status ù selected a priori as
-plausible confounders.
+### Covariate
+**Self_Treat** attitude item: agreement with "I can usually self-treat with remedies
+that are available without a doctor's prescription," recorded on a 5-point Likert scale
+and encoded 1-5 (`self_treat_score`). It is used as the adjustment covariate in all
+multivariable models, entered as a numeric (per-point) term. Demographic covariates
+(age, sex, residence, health insurance) are intentionally excluded from this design.
 
 ## Analysis plan
 
@@ -40,8 +43,8 @@ plausible confounders.
    self-medication; t-test/ANOVA for continuous predictors across the outcome.
 3. **Multivariable logistic regression.** Self-medication regressed on SES tertile and
    HISB, adjusting for covariates. Effects reported as adjusted odds ratios (aOR) with
-   95% CIs. Model fit assessed with pseudo-Rù, AIC, and the likelihood-ratio test.
-4. **Interaction.** SES ù HISB interaction term tested as a sensitivity analysis.
+   95% CIs. Model fit assessed with pseudo-R≤, AIC, and the likelihood-ratio test.
+4. **Interaction.** SES ◊ HISB interaction term tested as a sensitivity analysis.
 5. **Ordinal model (secondary outcome).** Self-medication *frequency*
    (Never < Rarely < Sometimes < Often) modelled with a **proportional-odds
    (cumulative-logit) ordinal logistic regression** using the same predictor set.
