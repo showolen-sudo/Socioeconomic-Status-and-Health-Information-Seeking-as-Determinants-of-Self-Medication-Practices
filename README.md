@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Reproducible](https://img.shields.io/badge/reproducible-pipeline-success.svg)](#reproducing-the-analysis)
 
-**Authors:** Nurudeen Showole, MD (1); Suhila Sawesi, PhD (1)
+**Authors:** [Nurudeen Showole, MD](https://github.com/showolen-sudo/Socioeconomic-Status-and-Health-Information-Seeking-as-Determinants-of-Self-Medication-Practices/blob/main/docs/DR_NURUDEEN_SHOWOLE_Resume_GA.pdf) (1); Suhila Sawesi, PhD (1)
 
 (1) Grand Valley State University
 

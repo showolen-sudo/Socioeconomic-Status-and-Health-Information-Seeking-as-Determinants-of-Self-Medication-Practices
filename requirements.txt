@@ -14,6 +14,9 @@ seaborn>=0.13,<1.0
 # Config
 pyyaml>=6.0,<7.0
 
+# Excel export
+openpyxl>=3.1,<4.0
+
 # Dev / test (optional but recommended)
 pytest>=7.4
 ruff>=0.5
