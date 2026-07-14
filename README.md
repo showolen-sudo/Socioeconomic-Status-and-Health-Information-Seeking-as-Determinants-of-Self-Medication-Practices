@@ -67,12 +67,20 @@ Outputs:
 - `results/tables/*.csv` - individual tables
 - `results/NCME_2021_Manuscript_Analysis_Results.xlsx` - combined workbook
 
-## Primary adjusted results (manuscript)
+## Outputs aligned with the manuscript
 
-In the adjusted model (`outcome ~ SES + HISB + Self_Treat_z`), HISB is the most
-consistent correlate of both OTC and herbal use; high SES and self-treatment
-attitude are more relevant for herbal use. Re-run `python run_analysis.py` to
-reproduce the combined odds-ratio table from the current data extract.
+`python run_analysis.py` regenerates the manuscript tables:
+
+| Output | Manuscript role |
+| --- | --- |
+| `descriptives` | Continuous variable summary |
+| `prev_ses` | Unadjusted OTC/herbal prevalence by SES tertile |
+| `prev_hisb` | Unadjusted prevalence by HISB median split |
+| `self_treat_effect` | Crude vs adjusted Self_Treat odds ratios |
+| `combined_or` / `adjusted_or_long` | Fully adjusted SES + HISB + Self_Treat ORs |
+
+Primary model: `logit(outcome ~ SES tertile + HISB + Self_Treat_z)`. Place
+`data/raw/survey_raw.csv` and re-run to refresh all results.
 
 ## Citation
 
