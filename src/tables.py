@@ -42,7 +42,7 @@ def study_overview(df: pd.DataFrame) -> pd.DataFrame:
             },
             {
                 "Item": "Self_Treat",
-                "Value": "Separate predictor; Likert 1-5, z-scored in models",
+                "Value": "Separate predictor; Likert (survey 1-7), z-scored in models",
             },
             {
                 "Item": "Primary model",

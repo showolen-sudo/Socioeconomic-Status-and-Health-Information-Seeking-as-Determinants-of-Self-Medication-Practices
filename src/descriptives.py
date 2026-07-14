@@ -80,31 +80,15 @@ def prevalence_by_hisb(df: pd.DataFrame) -> pd.DataFrame:
 
 def prevalence_by_self_treat(df: pd.DataFrame) -> pd.DataFrame:
     """Percent using OTC/herbal at each Self_Treat Likert level (unadjusted)."""
-    order = (
-        "Strongly disagree",
-        "Disagree",
-        "Neutral",
-        "Agree",
-        "Strongly agree",
-    )
     rows = []
-    for level in order:
-        sub = df[df["Self_Treat"].astype(str).str.strip() == level]
-        if sub.empty:
-            # Numeric-coded Self_Treat: map by score when labels absent
-            code = {
-                "Strongly disagree": 1,
-                "Disagree": 2,
-                "Neutral": 3,
-                "Agree": 4,
-                "Strongly agree": 5,
-            }[level]
-            sub = df[df["self_treat_score"] == code]
+    scores = sorted(df["self_treat_score"].dropna().unique())
+    for code in scores:
+        sub = df[df["self_treat_score"] == code]
         if sub.empty:
             continue
         rows.append(
             {
-                "Self_Treat response": level,
+                "Self_Treat score": int(code),
                 "N": len(sub),
                 "OTC use (%)": round(float(sub["otc_use"].mean()) * 100, 1),
                 "Herbal use (%)": round(float(sub["herbal_use"].mean()) * 100, 1),
