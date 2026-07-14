@@ -1,19 +1,21 @@
-cff-version: 1.2.0
+﻿cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "Socioeconomic Status and Health Information Seeking as Determinants of Self-Medication Practices"
+title: "SES, HISB, and Self-Treatment Attitude as Predictors of Self-Medication"
 abstract: >-
-  A reproducible analysis pipeline examining socioeconomic status and health
-  information-seeking behaviour as determinants of self-medication practices.
+  Reproducible manuscript analysis (descriptives and multivariable logistic
+  regression) of socioeconomic status, health information-seeking behaviour
+  (excluding Self_Treat from the HISB composite), and self-treatment attitude
+  as predictors of OTC and herbal self-medication in the 2021 NCME&PR survey.
 type: software
 authors:
   - family-names: "Showole"
     given-names: "Nurudeen"
     name-suffix: "MD"
-    affiliation: "Grand Valley State University"
+    affiliation: "College of Computing, Grand Valley State University"
   - family-names: "Sawesi"
     given-names: "Suhila"
     name-suffix: "PhD"
-    affiliation: "Grand Valley State University"
+    affiliation: "College of Computing, Grand Valley State University"
 keywords:
   - self-medication
   - socioeconomic status
@@ -22,5 +24,5 @@ keywords:
   - logistic regression
   - reproducible research
 license: MIT
-version: "0.1.0"
-date-released: "2026-06-09"
+version: "0.2.0"
+date-released: "2026-07-14"

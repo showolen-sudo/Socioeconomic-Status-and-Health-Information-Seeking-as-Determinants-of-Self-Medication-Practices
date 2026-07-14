@@ -1,55 +1,16 @@
-# Single source of truth for paths and analysis parameters.
-# Paths are relative to the project root.
-
-seed: 42
-
+﻿seed: 42
 paths:
   raw_data: data/raw/survey_raw.csv
-  processed_data: data/processed/analysis.csv
+  processed_data: results/analysis_dataset.csv
   tables_dir: results/tables
-  figures_dir: results/figures
-
-synthetic:
-  n_respondents: 1500
-
+  excel_output: results/NCME_2021_Manuscript_Analysis_Results.xlsx
 modelling:
-  # Self-medication is modelled as TWO separate outcomes (built from the daily-use
-  # counts NumOTC and NumHerbal). Each gets its own set of models.
+  ses_reference: Low
+  alpha: 0.05
   outcomes:
     - name: otc_use
-      label: "OTC drug use"
+      label: OTC drug use
       count_var: NumOTC
-      freq_var: otc_freq
     - name: herbal_use
-      label: "Herbal supplement use"
+      label: Herbal supplement use
       count_var: NumHerbal
-      freq_var: herbal_freq
-  ses_reference: "Low"        # reference category for SES tertile
-  covariates: []              # predictors are SES + HISB only; Self_Treat is part of HISB
-  alpha: 0.05
-
-mediation:
-  # X = ses_score (SES composite), M = hisb_score, Y = each outcome
-  n_boot: 1000
-
-subgroup:
-  # Binary variables to stratify the SES/HISB associations over. These are
-  # advertisement-driven information behaviours (Yes/No) drawn from the HISB block.
-  variables:
-    - DTCA_Info
-    - DTCA_Prescribe
-
-mi:
-  # Multiple imputation demo. Missingness is injected (MCAR) into these predictors
-  # so the imputation is meaningful on the synthetic data; on real data with genuine
-  # missingness set demo_missing: false to impute the observed gaps only.
-  demo_missing: true
-  demo_missing_rate: 0.15
-  demo_missing_cols:
-    - hisb_score
-  n_imputations: 20
-  n_burnin: 10
-
-calibration:
-  n_splits: 5
-  n_calibration_bins: 10
